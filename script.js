@@ -159,60 +159,68 @@
     var formWrap = document.getElementById("signup-form-wrap");
     var emailInput = document.getElementById("email");
 
-    var data = getData();
     var params = new URLSearchParams(window.location.search);
     var inviteId = params.get("invite");
-    var invitedAccount = inviteId ? data.accounts.find(function (a) { return a.id === inviteId && a.status === "Invited"; }) : null;
-    var isBootstrap = !inviteId && data.accounts.length === 0;
-    var isBlocked = !inviteId && data.accounts.length > 0;
-    var isBadInvite = !!inviteId && !invitedAccount;
+    var invitedRecord = null;
 
-    if (isBlocked || isBadInvite) {
+    function showBlocked(message, heading) {
       if (formWrap) formWrap.style.display = "none";
       if (subheadingEl) subheadingEl.style.display = "none";
       if (blockedEl) {
         blockedEl.classList.add("is-visible");
-        blockedEl.textContent = isBadInvite
-          ? "This invite link is invalid or has already been used. Ask your Super Admin to send a new one."
-          : "This bakery already has an account set up. Ask your Super Admin to send you an invite link to join.";
+        blockedEl.textContent = message;
       }
-      if (headingEl) headingEl.textContent = isBadInvite ? "Invite Not Found" : "Invite Needed";
-      return;
+      if (headingEl) headingEl.textContent = heading;
     }
 
-    if (invitedAccount) {
-      if (headingEl) headingEl.textContent = "Complete Your Account";
-      if (subheadingEl) subheadingEl.textContent = "You're joining DRR Bakery as " + invitedAccount.role + ". Set your password to finish.";
-      var nameParts = invitedAccount.name.split(" ");
-      document.getElementById("first-name").value = nameParts[0] || "";
-      document.getElementById("last-name").value = nameParts.slice(1).join(" ");
-      emailInput.value = invitedAccount.email;
-      emailInput.setAttribute("disabled", "disabled");
-    } else if (isBootstrap) {
-      if (headingEl) headingEl.textContent = "Set Up Your Bakery";
-      if (subheadingEl) subheadingEl.textContent = "Create the first account \u2014 you'll be the Super Admin (Owner).";
+    async function setup() {
+      if (inviteId) {
+        var inviteResult = await supabaseClient.rpc("get_invite", { invite_id: inviteId });
+        var record = inviteResult.data && inviteResult.data[0];
+        if (inviteResult.error || !record || record.status !== "Pending") {
+          showBlocked("This invite link is invalid or has already been used. Ask your Super Admin to send a new one.", "Invite Not Found");
+          return;
+        }
+        invitedRecord = record;
+        if (headingEl) headingEl.textContent = "Complete Your Account";
+        if (subheadingEl) subheadingEl.textContent = "You're joining DRR Bakery as " + record.role + ". Set your password to finish.";
+        var nameParts = record.full_name.split(" ");
+        document.getElementById("first-name").value = nameParts[0] || "";
+        document.getElementById("last-name").value = nameParts.slice(1).join(" ");
+        emailInput.value = record.email;
+        emailInput.setAttribute("disabled", "disabled");
+      } else {
+        var countResult = await supabaseClient.rpc("profiles_count");
+        var isBootstrap = countResult.data === 0;
+        if (isBootstrap) {
+          if (headingEl) headingEl.textContent = "Set Up Your Bakery";
+          if (subheadingEl) subheadingEl.textContent = "Create the first account \u2014 you'll be the Super Admin (Owner).";
+        } else {
+          showBlocked("This bakery already has an account set up. Ask your Super Admin to send you an invite link to join.", "Invite Needed");
+        }
+      }
     }
 
-    form.addEventListener("submit", function (event) {
+    setup();
+
+    form.addEventListener("submit", async function (event) {
       event.preventDefault();
       hideAlert(alertEl);
       clearAllFieldErrors(form);
 
       var firstName = document.getElementById("first-name").value.trim();
       var lastName = document.getElementById("last-name").value.trim();
-      var email = invitedAccount ? invitedAccount.email : document.getElementById("email").value.trim();
+      var email = invitedRecord ? invitedRecord.email : document.getElementById("email").value.trim();
       var password = document.getElementById("password").value;
       var hasError = false;
 
       if (!firstName) { setFieldError("first-name", "First name is required."); hasError = true; }
       if (!lastName) { setFieldError("last-name", "Last name is required."); hasError = true; }
-      if (!invitedAccount) {
+      if (!invitedRecord) {
         if (!email) {
           setFieldError("email", "Email is required."); hasError = true;
         } else if (!isValidEmail(email)) {
           setFieldError("email", "Enter a valid email address."); hasError = true;
-        } else if (findUserByEmail(email)) {
-          setFieldError("email", "An account with this email already exists."); hasError = true;
         }
       }
       if (!password) {
@@ -222,24 +230,40 @@
       }
       if (hasError) return;
 
-      var users = getUsers();
-      users.push({ firstName: firstName, lastName: lastName, email: email.toLowerCase(), password: password });
-      saveUsers(users);
+      var submitBtn = form.querySelector("button[type='submit']");
+      submitBtn.disabled = true;
 
-      var actorName = (firstName + " " + lastName).trim();
-      if (invitedAccount) {
-        invitedAccount.name = actorName;
-        invitedAccount.status = "Active";
-        data.activityLog.unshift({ date: todayLabel(), user: actorName, action: "Accepted invite (" + invitedAccount.role + ")" });
-        saveData(data);
-      } else if (isBootstrap) {
-        data.accounts.push({ id: uid("acc"), name: actorName, role: "Super Admin", email: email.toLowerCase(), status: "Active" });
-        data.activityLog.unshift({ date: todayLabel(), user: actorName, action: "Created the Super Admin account" });
-        saveData(data);
+      var signUpResult = await supabaseClient.auth.signUp({ email: email, password: password });
+      if (signUpResult.error) {
+        submitBtn.disabled = false;
+        showAlert(alertEl, "error", signUpResult.error.message || "Couldn't create that account.");
+        return;
       }
+
+      var newUserId = signUpResult.data.user && signUpResult.data.user.id;
+      var role = invitedRecord ? invitedRecord.role : "Super Admin";
+      var fullName = (firstName + " " + lastName).trim();
+
+      var profileResult = await supabaseClient.from("profiles").insert({
+        id: newUserId, full_name: fullName, email: email.toLowerCase(), role: role, status: "Active"
+      });
+      if (profileResult.error) {
+        submitBtn.disabled = false;
+        showAlert(alertEl, "error", "Account created, but the profile couldn't be saved: " + profileResult.error.message);
+        return;
+      }
+
+      if (invitedRecord) {
+        await supabaseClient.from("invites").update({ status: "Accepted" }).eq("id", invitedRecord.id);
+      }
+      await supabaseClient.from("activity_log").insert({
+        user_id: newUserId,
+        action: invitedRecord ? "Accepted invite (" + role + ")" : "Created the Super Admin account"
+      });
 
       showAlert(alertEl, "success", "Account created! Redirecting you to log in\u2026");
       form.reset();
+      await supabaseClient.auth.signOut();
       setTimeout(function () { window.location.href = "index.html"; }, 1200);
     });
   }
@@ -261,7 +285,7 @@
       if (rememberInput) rememberInput.checked = true;
     }
 
-    form.addEventListener("submit", function (event) {
+    form.addEventListener("submit", async function (event) {
       event.preventDefault();
       hideAlert(alertEl);
       clearAllFieldErrors(form);
@@ -278,24 +302,30 @@
       if (!password) { setFieldError("password", "Password is required."); hasError = true; }
       if (hasError) return;
 
-      var user = findUserByEmail(email);
-      if (!user) {
-        showAlert(alertEl, "error", "We couldn't find an account with that email. Ask your Super Admin for an invite.");
-        return;
-      }
-      if (user.password !== password) {
-        showAlert(alertEl, "error", "Incorrect password. Please try again.");
+      var submitBtn = form.querySelector("button[type='submit']");
+      submitBtn.disabled = true;
+
+      var signInResult = await supabaseClient.auth.signInWithPassword({ email: email, password: password });
+      if (signInResult.error) {
+        submitBtn.disabled = false;
+        showAlert(alertEl, "error", "Incorrect email or password. Please try again.");
         return;
       }
 
-      var data = getData();
-      var account = findAccountByEmail(data, email);
-      if (!account) {
-        showAlert(alertEl, "error", "Your account isn't registered with this bakery anymore. Contact your Super Admin.");
+      var userId = signInResult.data.user.id;
+      var profileResult = await supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle();
+      var profile = profileResult.data;
+
+      if (!profile) {
+        submitBtn.disabled = false;
+        showAlert(alertEl, "error", "Your account isn't fully set up. Contact your Super Admin.");
+        await supabaseClient.auth.signOut();
         return;
       }
-      if (account.status !== "Active") {
-        showAlert(alertEl, "error", "Your account is " + account.status.toLowerCase() + ". Contact your Super Admin.");
+      if (profile.status !== "Active") {
+        submitBtn.disabled = false;
+        showAlert(alertEl, "error", "Your account is " + profile.status.toLowerCase() + ". Contact your Super Admin.");
+        await supabaseClient.auth.signOut();
         return;
       }
 
@@ -305,8 +335,9 @@
         localStorage.removeItem(REMEMBER_KEY);
       }
 
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ firstName: user.firstName, email: user.email, role: account.role }));
-      showAlert(alertEl, "success", "Welcome back, " + user.firstName + "! Redirecting\u2026");
+      var firstName = profile.full_name.split(" ")[0] || profile.full_name;
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ firstName: firstName, email: profile.email, role: profile.role }));
+      showAlert(alertEl, "success", "Welcome back, " + firstName + "! Redirecting\u2026");
       setTimeout(function () { window.location.href = "dashboard.html"; }, 900);
     });
   }
@@ -316,37 +347,12 @@
      ======================================================================= */
 
   function handleGoogleProfile(profile) {
-    var email = (profile.email || "").trim().toLowerCase();
-    if (!email) {
-      alert("Google didn't return an email address, so sign-in couldn't be completed.");
-      return;
-    }
-
-    var data = getData();
-    var account = findAccountByEmail(data, email);
-    if (!account) {
-      alert("No DRR Bakery account exists for " + email + ". Ask your Super Admin to invite you first.");
-      return;
-    }
-    if (account.status !== "Active") {
-      alert("This account is " + account.status.toLowerCase() + ". Contact your Super Admin.");
-      return;
-    }
-
-    var users = getUsers();
-    var user = findUserByEmail(email);
-    if (!user) {
-      var nameParts = account.name.split(" ");
-      user = {
-        firstName: profile.given_name || nameParts.shift() || "Friend",
-        lastName: profile.family_name || nameParts.join(" "),
-        email: email, password: null, provider: "google"
-      };
-      users.push(user);
-      saveUsers(users);
-    }
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ firstName: user.firstName, email: user.email, role: account.role }));
-    window.location.href = "dashboard.html";
+    // NOTE: this custom Google Identity Services flow never creates a real
+    // Supabase Auth session, so it can no longer pass your Row Level Security
+    // checks. Proper Google sign-in with Supabase uses its own built-in OAuth
+    // provider instead (supabaseClient.auth.signInWithOAuth) — ask to set that
+    // up next if you want a working Google button.
+    alert("Google sign-in needs to be reconnected to Supabase's own login system. Ask to set this up as the next step.");
   }
 
   function initGoogleSignIn() {
@@ -394,7 +400,7 @@
     var alertEl = document.getElementById("forgot-password-alert");
     var submitBtn = form.querySelector("button[type='submit']");
 
-    form.addEventListener("submit", function (event) {
+    form.addEventListener("submit", async function (event) {
       event.preventDefault();
       hideAlert(alertEl);
       clearAllFieldErrors(form);
@@ -407,12 +413,15 @@
       submitBtn.disabled = true;
       submitBtn.textContent = "Sending\u2026";
 
-      setTimeout(function () {
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
-        showAlert(alertEl, "success", "If an account exists for " + email + ", a reset link is on its way.");
-        form.reset();
-      }, 900);
+      var basePath = window.location.pathname.replace(/[^/]*$/, "");
+      var redirectTo = window.location.origin + basePath + "index.html";
+
+      await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: redirectTo });
+
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalText;
+      showAlert(alertEl, "success", "If an account exists for " + email + ", a reset link is on its way.");
+      form.reset();
     });
   }
 
@@ -501,6 +510,12 @@
 
   var FLASH_KEY = "drrBakeryFlash";
 
+  async function logActivitySupa(action) {
+    var userResult = await supabaseClient.auth.getUser();
+    var userId = userResult.data && userResult.data.user && userResult.data.user.id;
+    await supabaseClient.from("activity_log").insert({ user_id: userId, action: action });
+  }
+
   function setFlash(msg) {
     sessionStorage.setItem(FLASH_KEY, msg);
   }
@@ -540,16 +555,32 @@
     });
   }
 
-  function initAppChrome() {
+  async function initAppChrome() {
     var avatarBtn = document.getElementById("avatar-btn");
     if (!avatarBtn) return;
 
-    // Require a session for every app page (dashboard, recipes, inventory, etc).
-    var session = getSession();
-    if (!session) {
+    // Check the REAL Supabase session (persists across tabs/refreshes),
+    // and refresh our lightweight sessionStorage mirror from it.
+    var sessionResult = await supabaseClient.auth.getSession();
+    var supaSession = sessionResult.data && sessionResult.data.session;
+    if (!supaSession) {
+      sessionStorage.removeItem(SESSION_KEY);
       window.location.href = "index.html";
       return false;
     }
+
+    var profileResult = await supabaseClient.from("profiles").select("*").eq("id", supaSession.user.id).maybeSingle();
+    var profile = profileResult.data;
+    if (!profile || profile.status !== "Active") {
+      await supabaseClient.auth.signOut();
+      sessionStorage.removeItem(SESSION_KEY);
+      window.location.href = "index.html";
+      return false;
+    }
+
+    var firstName = profile.full_name.split(" ")[0] || profile.full_name;
+    var session = { firstName: firstName, email: profile.email, role: profile.role };
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 
     // Enforce which roles may open this page.
     var page = currentPageFile();
@@ -582,8 +613,9 @@
       }
     });
 
-    document.getElementById("avatar-logout-btn").addEventListener("click", function () {
+    document.getElementById("avatar-logout-btn").addEventListener("click", async function () {
       sessionStorage.removeItem(SESSION_KEY);
+      await supabaseClient.auth.signOut();
       window.location.href = "index.html";
     });
 
@@ -1358,14 +1390,24 @@
   function initAdminPage() {
     var body = document.getElementById("accounts-body");
     if (!body) return;
-    var data = getData();
 
-    function renderAccounts() {
+    async function renderAccounts() {
+      var result = await supabaseClient.from("profiles").select("*").order("full_name");
+      if (result.error) {
+        console.error("renderAccounts error:", result.error);
+        body.innerHTML = '<tr><td colspan="5" class="empty-note">Couldn\'t load accounts: ' + result.error.message + '</td></tr>';
+        return;
+      }
+      var accounts = result.data || [];
       body.innerHTML = "";
-      data.accounts.forEach(function (acc) {
+      if (!accounts.length) {
+        body.innerHTML = '<tr><td colspan="5" class="empty-note">No accounts yet.</td></tr>';
+        return;
+      }
+      accounts.forEach(function (acc) {
         var tr = document.createElement("tr");
         tr.innerHTML =
-          "<td>" + acc.name + "</td>" +
+          "<td>" + acc.full_name + "</td>" +
           "<td>" + acc.role + "</td>" +
           "<td>" + acc.email + "</td>" +
           '<td><span class="status-pill">' + acc.status + '</span></td>' +
@@ -1374,16 +1416,24 @@
       });
     }
 
-    function renderActivity() {
+    async function renderActivity() {
       var logBody = document.getElementById("activity-log-body");
+      var result = await supabaseClient
+        .from("activity_log")
+        .select("action, created_at, profiles(full_name)")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      var entries = result.data || [];
       logBody.innerHTML = "";
-      if (!data.activityLog.length) {
+      if (!entries.length) {
         logBody.innerHTML = '<tr><td colspan="3" class="empty-note">No activity yet.</td></tr>';
         return;
       }
-      data.activityLog.forEach(function (entry) {
+      entries.forEach(function (entry) {
         var tr = document.createElement("tr");
-        tr.innerHTML = "<td>" + entry.date + "</td><td>" + entry.user + "</td><td>" + entry.action + "</td>";
+        var dateLabel = new Date(entry.created_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+        var userName = entry.profiles ? entry.profiles.full_name : "Unknown";
+        tr.innerHTML = "<td>" + dateLabel + "</td><td>" + userName + "</td><td>" + entry.action + "</td>";
         logBody.appendChild(tr);
       });
     }
@@ -1399,7 +1449,6 @@
   function initInviteAccountPage() {
     var sendBtn = document.getElementById("send-invite-btn");
     if (!sendBtn) return;
-    var data = getData();
     var selectedRole = "Staff";
     var formSection = document.getElementById("invite-form-section");
     var resultSection = document.getElementById("invite-result-section");
@@ -1413,19 +1462,41 @@
       });
     });
 
-    sendBtn.addEventListener("click", function () {
+    sendBtn.addEventListener("click", async function () {
       var name = document.getElementById("invite-name").value.trim();
       var email = document.getElementById("invite-email").value.trim();
       if (!name || !isValidEmail(email)) { toast("Enter a name and a valid email."); return; }
-      if (findAccountByEmail(data, email)) { toast("An account with this email already exists or is already invited."); return; }
 
-      var newAccount = { id: uid("acc"), name: name, role: selectedRole, email: email, status: "Invited" };
-      data.accounts.push(newAccount);
-      logActivity(data, "Invited account - " + name + " (" + selectedRole + ")");
-      saveData(data);
+      sendBtn.disabled = true;
+
+      var existingProfile = await supabaseClient.from("profiles").select("id").ilike("email", email).maybeSingle();
+      if (existingProfile.data) {
+        sendBtn.disabled = false;
+        toast("An account with this email already exists.");
+        return;
+      }
+      var existingInvite = await supabaseClient.from("invites").select("id").ilike("email", email).eq("status", "Pending").maybeSingle();
+      if (existingInvite.data) {
+        sendBtn.disabled = false;
+        toast("This email already has a pending invite.");
+        return;
+      }
+
+      var insertResult = await supabaseClient.from("invites").insert({
+        email: email, full_name: name, role: selectedRole, status: "Pending"
+      }).select().single();
+
+      sendBtn.disabled = false;
+
+      if (insertResult.error) {
+        toast("Couldn't create the invite: " + insertResult.error.message);
+        return;
+      }
+
+      await logActivitySupa("Invited account - " + name + " (" + selectedRole + ")");
 
       var basePath = window.location.pathname.replace(/[^/]*$/, "");
-      var link = window.location.origin + basePath + "signup.html?invite=" + newAccount.id;
+      var link = window.location.origin + basePath + "signup.html?invite=" + insertResult.data.id;
 
       if (formSection) formSection.style.display = "none";
       if (resultSection) resultSection.classList.add("is-visible");
@@ -1455,18 +1526,8 @@
   function initEditAccountPage() {
     var nameInput = document.getElementById("edit-account-name");
     if (!nameInput) return;
-    var data = getData();
+
     var id = new URLSearchParams(window.location.search).get("id");
-    var acc = data.accounts.find(function (a) { return a.id === id; });
-
-    if (!acc) {
-      document.querySelector(".app-main").innerHTML = '<p class="empty-note">Account not found. <a href="admin.html">Back to Admin</a></p>';
-      return;
-    }
-
-    document.getElementById("edit-account-id").value = acc.id;
-    nameInput.value = acc.name;
-    document.getElementById("edit-account-email").value = acc.email;
 
     function setRoleUI(role) {
       document.querySelectorAll("#edit-role-toggle .chip").forEach(function (c) {
@@ -1478,46 +1539,65 @@
         c.classList.toggle("active", c.getAttribute("data-status") === status);
       });
     }
-    setRoleUI(acc.role);
-    setStatusUI(acc.status === "Active" ? "Active" : "Inactive");
 
-    document.querySelectorAll("#edit-role-toggle .chip").forEach(function (chip) {
-      chip.addEventListener("click", function () {
-        acc.role = chip.getAttribute("data-role");
-        setRoleUI(acc.role);
-        logActivity(data, "Updated account role - " + acc.name + " (" + acc.role + ")");
-        saveData(data);
-        toast(acc.name + "'s role set to " + acc.role + ".");
+    async function load() {
+      var result = await supabaseClient.from("profiles").select("*").eq("id", id).maybeSingle();
+      var acc = result.data;
+      if (!acc) {
+        document.querySelector(".app-main").innerHTML = '<p class="empty-note">Account not found. <a href="admin.html">Back to Admin</a></p>';
+        return;
+      }
+
+      document.getElementById("edit-account-id").value = acc.id;
+      nameInput.value = acc.full_name;
+      document.getElementById("edit-account-email").value = acc.email;
+      setRoleUI(acc.role);
+      setStatusUI(acc.status === "Active" ? "Active" : "Inactive");
+
+      document.querySelectorAll("#edit-role-toggle .chip").forEach(function (chip) {
+        chip.addEventListener("click", async function () {
+          var role = chip.getAttribute("data-role");
+          var updateResult = await supabaseClient.from("profiles").update({ role: role }).eq("id", acc.id);
+          if (updateResult.error) { toast("Couldn't update role: " + updateResult.error.message); return; }
+          acc.role = role;
+          setRoleUI(role);
+          await logActivitySupa("Updated account role - " + acc.full_name + " (" + role + ")");
+          toast(acc.full_name + "'s role set to " + role + ".");
+        });
       });
-    });
 
-    document.querySelectorAll("#edit-status-toggle .chip").forEach(function (chip) {
-      chip.addEventListener("click", function () {
-        var status = chip.getAttribute("data-status");
-        acc.status = status === "Active" ? "Active" : "Inactive";
-        setStatusUI(acc.status);
-        logActivity(data, "Updated account status - " + acc.name + " (" + acc.status + ")");
-        saveData(data);
-        toast(acc.name + "'s status set to " + acc.status + ".");
+      document.querySelectorAll("#edit-status-toggle .chip").forEach(function (chip) {
+        chip.addEventListener("click", async function () {
+          var status = chip.getAttribute("data-status") === "Active" ? "Active" : "Inactive";
+          var updateResult = await supabaseClient.from("profiles").update({ status: status }).eq("id", acc.id);
+          if (updateResult.error) { toast("Couldn't update status: " + updateResult.error.message); return; }
+          acc.status = status;
+          setStatusUI(status);
+          await logActivitySupa("Updated account status - " + acc.full_name + " (" + status + ")");
+          toast(acc.full_name + "'s status set to " + status + ".");
+        });
       });
-    });
 
-    document.getElementById("deactivate-account-btn").addEventListener("click", function () {
-      acc.status = "Inactive";
-      setStatusUI("Inactive");
-      logActivity(data, "Deactivated account - " + acc.name);
-      saveData(data);
-      toast(acc.name + " has been deactivated.");
-    });
+      document.getElementById("deactivate-account-btn").addEventListener("click", async function () {
+        var updateResult = await supabaseClient.from("profiles").update({ status: "Inactive" }).eq("id", acc.id);
+        if (updateResult.error) { toast("Couldn't deactivate: " + updateResult.error.message); return; }
+        acc.status = "Inactive";
+        setStatusUI("Inactive");
+        await logActivitySupa("Deactivated account - " + acc.full_name);
+        toast(acc.full_name + " has been deactivated.");
+      });
 
-    document.getElementById("delete-account-btn").addEventListener("click", function () {
-      if (!confirm("Delete " + acc.name + "'s account? This can't be undone.")) return;
-      data.accounts = data.accounts.filter(function (a) { return a.id !== acc.id; });
-      logActivity(data, "Deleted account - " + acc.name);
-      saveData(data);
-      toast(acc.name + "'s account was deleted.");
-      setTimeout(function () { window.location.href = "admin.html"; }, 600);
-    });
+      document.getElementById("delete-account-btn").addEventListener("click", async function () {
+        if (!confirm("Delete " + acc.full_name + "'s account? This can't be undone.")) return;
+        var deleteResult = await supabaseClient.from("profiles").delete().eq("id", acc.id);
+        if (deleteResult.error) { toast("Couldn't delete: " + deleteResult.error.message); return; }
+        await logActivitySupa("Deleted account - " + acc.full_name);
+        toast(acc.full_name + "'s account was deleted.");
+        setTimeout(function () { window.location.href = "admin.html"; }, 600);
+      });
+    }
+
+    load();
   }
 
   /* =======================================================================
@@ -1528,71 +1608,80 @@
     var nameInput = document.getElementById("profile-name");
     if (!nameInput) return;
 
-    var data = getData();
     var session = getSession();
     if (!session) { window.location.href = "index.html"; return; }
-
-    var user = findUserByEmail(session.email);
-    var acc = data.accounts.find(function (a) { return a.email.toLowerCase() === session.email.toLowerCase(); });
-
-    nameInput.value = user ? (user.firstName + (user.lastName ? " " + user.lastName : "")) : session.firstName;
-    document.getElementById("profile-email").value = session.email;
-    document.getElementById("profile-role").value = acc ? acc.role : "Staff";
 
     var businessSection = document.getElementById("business-settings-section");
     if (session.role !== "Super Admin" && businessSection) {
       businessSection.style.display = "none";
     }
 
-    var settings = data.settings || {};
-    document.getElementById("business-name").value = settings.bakeryName || "DRR Bakery";
-    document.getElementById("business-currency").value = settings.currency || "PHP";
-    document.getElementById("business-target-foodcost").value = settings.targetFoodCostPct || "";
-    document.getElementById("business-hours").value = settings.businessHours || "";
+    async function load() {
+      var profileResult = await supabaseClient.from("profiles").select("*").eq("email", session.email).maybeSingle();
+      var profile = profileResult.data;
 
-    document.getElementById("save-profile-btn").addEventListener("click", function () {
-      var fullName = nameInput.value.trim();
-      var newPassword = document.getElementById("profile-password").value;
-
-      if (user) {
-        var parts = fullName.split(" ");
-        user.firstName = parts.shift() || user.firstName;
-        user.lastName = parts.join(" ");
-
-        if (newPassword) {
-          if (!isValidPassword(newPassword)) {
-            toast("New password needs 8+ characters with a letter, number, and symbol.");
-            return;
-          }
-          user.password = newPassword;
-        }
-
-        var users = getUsers();
-        var idx = users.findIndex(function (u) { return u.email === user.email; });
-        if (idx !== -1) users[idx] = user;
-        saveUsers(users);
-
-        var sess = getSession();
-        sess.firstName = user.firstName;
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify(sess));
-      }
+      nameInput.value = profile ? profile.full_name : session.firstName;
+      document.getElementById("profile-email").value = session.email;
+      document.getElementById("profile-role").value = profile ? profile.role : "Staff";
 
       if (session.role === "Super Admin") {
-        data.settings = {
-          bakeryName: document.getElementById("business-name").value.trim(),
-          currency: document.getElementById("business-currency").value,
-          targetFoodCostPct: parseFloat(document.getElementById("business-target-foodcost").value) || 0,
-          businessHours: document.getElementById("business-hours").value.trim()
-        };
-        logActivity(data, "Updated profile & business settings");
-      } else {
-        logActivity(data, "Updated profile");
+        var settingsResult = await supabaseClient.from("business_settings").select("*").eq("id", 1).maybeSingle();
+        var settings = settingsResult.data || {};
+        document.getElementById("business-name").value = settings.bakery_name || "DRR Bakery";
+        document.getElementById("business-currency").value = settings.currency || "PHP";
+        document.getElementById("business-target-foodcost").value = settings.target_food_cost_pct || "";
+        document.getElementById("business-hours").value = settings.business_hours || "";
       }
-      saveData(data);
+    }
 
+    document.getElementById("save-profile-btn").addEventListener("click", async function () {
+      var fullName = nameInput.value.trim();
+      var newPassword = document.getElementById("profile-password").value;
+      var saveBtn = document.getElementById("save-profile-btn");
+      saveBtn.disabled = true;
+
+      if (newPassword) {
+        if (!isValidPassword(newPassword)) {
+          saveBtn.disabled = false;
+          toast("New password needs 8+ characters with a letter, number, and symbol.");
+          return;
+        }
+        var pwResult = await supabaseClient.auth.updateUser({ password: newPassword });
+        if (pwResult.error) {
+          saveBtn.disabled = false;
+          toast("Couldn't update password: " + pwResult.error.message);
+          return;
+        }
+      }
+
+      var nameResult = await supabaseClient.from("profiles").update({ full_name: fullName }).eq("email", session.email);
+      if (nameResult.error) {
+        saveBtn.disabled = false;
+        toast("Couldn't save profile: " + nameResult.error.message);
+        return;
+      }
+
+      session.firstName = fullName.split(" ")[0] || fullName;
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+
+      if (session.role === "Super Admin") {
+        await supabaseClient.from("business_settings").update({
+          bakery_name: document.getElementById("business-name").value.trim(),
+          currency: document.getElementById("business-currency").value,
+          target_food_cost_pct: parseFloat(document.getElementById("business-target-foodcost").value) || 0,
+          business_hours: document.getElementById("business-hours").value.trim()
+        }).eq("id", 1);
+        await logActivitySupa("Updated profile & business settings");
+      } else {
+        await logActivitySupa("Updated profile");
+      }
+
+      saveBtn.disabled = false;
       document.getElementById("profile-password").value = "";
       toast("Changes saved.");
     });
+
+    load();
   }
 
   /* =======================================================================
@@ -1809,14 +1898,15 @@
      Init
      ======================================================================= */
 
-  document.addEventListener("DOMContentLoaded", function () {
+  document.addEventListener("DOMContentLoaded", async function () {
     initPasswordToggles();
     initSignupForm();
     initLoginForm();
     initForgotPasswordForm();
     initGoogleSignIn();
 
-    if (initAppChrome() === false) return;
+    var chromeOk = await initAppChrome();
+    if (chromeOk === false) return;
 
     initDashboardPage();
     initRecipesListPage();
