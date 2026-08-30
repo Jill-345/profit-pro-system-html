@@ -1,0 +1,1310 @@
+/* ==========================================================================
+   DRR Bakery — Shared Stylesheet
+   Used by: index.html, signup.html, forgot-password.html,
+            dashboard.html, recipes.html, recipe-form.html, recipe-view.html,
+            inventory.html, admin.html, invite-account.html, edit-account.html,
+            profile.html, record-sale.html, analytics.html
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Karla:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Color tokens — warm bakery palette */
+  --color-cream:        #FDF8F0;   /* page background */
+  --color-crust:        #3E2723;   /* primary text, deep crust brown */
+  --color-cinnamon:     #C1662F;   /* accent, warm cinnamon */
+  --color-cinnamon-dark:#A5511F;   /* accent hover */
+  --color-wheat:        #E8DCC8;   /* photo panel background */
+  --color-wheat-line:   #DCCBAE;   /* borders, dividers */
+  --color-mocha:        #8B7355;   /* secondary/muted text */
+  --color-field:        #F6EFE2;   /* input background */
+  --color-white:        #FFFFFF;
+  --color-good-bg:       #EAF3E7;
+  --color-good-fg:       #3E6B2E;
+  --color-bad-bg:         #FBEAE5;
+  --color-bad-fg:          #9C3B1E;
+
+  /* Type */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Karla', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Shape */
+  --radius-md: 10px;
+  --radius-lg: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--color-crust);
+  background: var(--color-cream);
+  min-height: 100vh;
+}
+
+a {
+  color: var(--color-cinnamon);
+  text-decoration: none;
+}
+
+a:hover,
+a:focus-visible {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-cinnamon);
+  outline-offset: 2px;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   Split layout (login + signup)
+   -------------------------------------------------------------------------- */
+
+.auth-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.auth-photo {
+  position: relative;
+  flex: 0 0 50%;
+  max-width: 50%;
+  background: var(--color-wheat)
+    url('bakery-photo.jpg') center/cover no-repeat;
+  min-height: 100vh;
+}
+
+.auth-photo::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -1px;
+  width: 34px;
+  height: 100%;
+  background-image: radial-gradient(circle at 0 17px, transparent 17px, var(--color-cream) 17.5px);
+  background-size: 34px 34px;
+  background-repeat: repeat-y;
+}
+
+.auth-brandmark {
+  position: absolute;
+  top: 40px;
+  left: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-cream);
+  text-shadow: 0 1px 6px rgba(62, 39, 35, 0.55);
+}
+
+.auth-brandmark svg {
+  flex-shrink: 0;
+}
+
+.auth-brandmark span {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.auth-form-panel {
+  flex: 0 0 50%;
+  max-width: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 32px;
+}
+
+.auth-form-wrap {
+  width: 100%;
+  max-width: 400px;
+}
+
+.auth-heading {
+  font-family: var(--font-display);
+  font-size: 2.35rem;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--color-crust);
+  text-align: center;
+}
+
+.auth-subheading {
+  margin: 0 0 32px;
+  color: var(--color-mocha);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   Form elements (shared by auth pages and app pages)
+   -------------------------------------------------------------------------- */
+
+.form-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.form-row .field-group {
+  flex: 1;
+  min-width: 180px;
+}
+
+.field-group {
+  margin-bottom: 20px;
+}
+
+.field-group label,
+.field-group-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--color-crust);
+}
+
+.field-control {
+  position: relative;
+}
+
+.field-control input,
+.field-control select,
+.field-control textarea {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--color-crust);
+  background: var(--color-field);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.field-control textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+.field-control input::placeholder,
+.field-control textarea::placeholder {
+  color: #A99A85;
+}
+
+.field-control input:focus,
+.field-control select:focus,
+.field-control textarea:focus {
+  border-color: var(--color-cinnamon);
+  background: var(--color-white);
+  outline: none;
+}
+
+.field-control input[data-has-toggle="true"] {
+  padding-right: 44px;
+}
+
+.field-hint {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: var(--color-mocha);
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--color-mocha);
+  display: flex;
+  line-height: 0;
+}
+
+.password-toggle:hover {
+  color: var(--color-crust);
+}
+
+.field-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  font-size: 0.88rem;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-crust);
+}
+
+.checkbox-field input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-cinnamon);
+}
+
+.field-options-row a {
+  font-weight: 600;
+}
+
+/* Buttons */
+.btn {
+  display: block;
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 0.98rem;
+  font-weight: 700;
+  padding: 13px 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: center;
+}
+
+.btn-primary {
+  background: var(--color-crust);
+  color: var(--color-cream);
+  margin-bottom: 14px;
+}
+
+.btn-primary:hover {
+  background: var(--color-cinnamon-dark);
+}
+
+.btn-google {
+  background: var(--color-white);
+  color: var(--color-crust);
+  border-color: var(--color-wheat-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.btn-google:hover {
+  background: var(--color-field);
+}
+
+.auth-divider {
+  border: none;
+  border-top: 1px solid var(--color-wheat-line);
+  margin: 28px 0 20px;
+}
+
+.auth-footer-link {
+  text-align: center;
+  font-size: 0.92rem;
+  color: var(--color-mocha);
+}
+
+.auth-footer-link a {
+  font-weight: 700;
+}
+
+/* Centered card layout (forgot password) */
+
+.card-shell {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(rgba(253, 248, 240, 0.88), rgba(253, 248, 240, 0.88)),
+    url('delicious-sweet-bread-bakery.png') center/cover no-repeat;
+  background-color: var(--color-cream);
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-lg);
+  padding: 44px 40px;
+  text-align: center;
+}
+
+.auth-card .auth-heading {
+  font-size: 1.7rem;
+}
+
+.auth-card .auth-subheading {
+  max-width: 340px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.auth-card .field-group {
+  text-align: left;
+}
+
+.back-to-login {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 22px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+@media (max-width: 860px) {
+  .auth-shell {
+    flex-direction: column;
+  }
+  .auth-photo {
+    flex: 0 0 220px;
+    min-height: 220px;
+  }
+  .auth-photo::after {
+    top: auto;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 34px;
+    background-image: radial-gradient(circle at 17px 0, transparent 17px, var(--color-cream) 17.5px);
+    background-size: 34px 34px;
+    background-repeat: repeat-x;
+  }
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .auth-form-panel {
+    padding: 36px 20px;
+  }
+  .auth-card {
+    padding: 32px 24px;
+  }
+}
+
+/* Form feedback — alerts and inline field errors */
+
+.form-alert {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.form-alert.is-visible {
+  display: flex;
+}
+
+.form-alert.form-alert-error {
+  background: var(--color-bad-bg);
+  color: var(--color-bad-fg);
+  border: 1px solid #F1C6B7;
+}
+
+.form-alert.form-alert-success {
+  background: var(--color-good-bg);
+  color: var(--color-good-fg);
+  border: 1px solid #C9E0C0;
+}
+
+.field-control.has-error input {
+  border-color: #C0392B;
+  background: var(--color-bad-bg);
+}
+
+.field-error {
+  display: none;
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: #C0392B;
+  text-align: left;
+}
+
+.field-error.is-visible {
+  display: block;
+}
+
+.btn[disabled] {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   App shell — shared header/nav across dashboard, recipes, inventory,
+   admin, profile, and analytics pages
+   ========================================================================== */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 40px;
+  border-bottom: 1px solid var(--color-wheat-line);
+  background: var(--color-white);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.app-brandmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-crust);
+  flex-shrink: 0;
+}
+
+.app-brandmark svg {
+  color: var(--color-cinnamon);
+  flex-shrink: 0;
+}
+
+.app-brandmark span {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.app-nav {
+  display: flex;
+  gap: 30px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+}
+
+.app-nav a {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-mocha);
+  padding: 6px 2px;
+  border-bottom: 2px solid transparent;
+}
+
+.app-nav a:hover {
+  color: var(--color-cinnamon);
+  text-decoration: none;
+}
+
+.app-nav a.active {
+  color: var(--color-cinnamon);
+  border-bottom-color: var(--color-cinnamon);
+  text-decoration: none;
+}
+
+.avatar-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--color-mocha);
+  border: none;
+  color: var(--color-cream);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.avatar-btn:hover {
+  background: var(--color-crust);
+}
+
+/* Account dropdown menu (injected next to the avatar button) */
+
+.avatar-menu {
+  display: none;
+  position: fixed;
+  top: 68px;
+  right: 40px;
+  min-width: 220px;
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  box-shadow: 0 10px 28px rgba(62, 39, 35, 0.14);
+  z-index: 50;
+}
+
+.avatar-menu.is-open {
+  display: block;
+}
+
+.avatar-menu-email {
+  margin: 0 0 2px;
+  font-size: 0.8rem;
+  color: var(--color-mocha);
+  word-break: break-all;
+}
+
+.avatar-menu-role {
+  margin: 0 0 12px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--color-cinnamon-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.avatar-menu-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--color-crust);
+  background: none;
+  border: none;
+  padding: 9px 4px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.avatar-menu-link:hover {
+  background: var(--color-field);
+  text-decoration: none;
+}
+
+.avatar-menu-logout {
+  color: var(--color-cinnamon-dark);
+  border-top: 1px solid var(--color-wheat-line);
+  margin-top: 4px;
+  padding-top: 12px;
+}
+
+@media (max-width: 560px) {
+  .avatar-menu {
+    right: 20px;
+  }
+}
+
+/* Hero band — dashboard only */
+
+.hero-band {
+  background: linear-gradient(135deg, var(--color-crust), var(--color-cinnamon-dark));
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+}
+
+.hero-band h1 {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 3.1rem;
+  color: var(--color-cream);
+  margin: 0;
+}
+
+/* Page shell */
+
+.app-main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 30px 40px 64px;
+}
+
+.app-main.narrow {
+  max-width: 900px;
+}
+
+.section-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-mocha);
+  margin: 0 0 12px;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--color-crust);
+  margin: 36px 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-wheat-line);
+}
+
+.section-title:first-of-type {
+  margin-top: 0;
+}
+
+.page-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.page-heading {
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-crust);
+}
+
+/* Stat cards (dashboard + analytics) */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin-bottom: 30px;
+}
+
+.stat-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+}
+
+.stat-card .stat-label {
+  font-size: 0.8rem;
+  color: var(--color-mocha);
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.stat-card .stat-value {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-crust);
+}
+
+/* Quick actions */
+
+.quick-actions-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 16px;
+}
+
+.quick-actions-head .section-label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.quick-actions-head hr {
+  flex: 1;
+  border: none;
+  border-top: 1px solid var(--color-wheat-line);
+  margin: 0;
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin-bottom: 30px;
+}
+
+.action-btn {
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--color-crust);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+}
+
+.action-btn:hover {
+  background: var(--color-field);
+  border-color: var(--color-cinnamon);
+  text-decoration: none;
+}
+
+.action-btn .action-icon {
+  color: var(--color-cinnamon);
+  flex-shrink: 0;
+  display: flex;
+}
+
+/* Chart panels */
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.panel {
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+}
+
+.panel h3 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 14px;
+  color: var(--color-crust);
+}
+
+.legend-toggle {
+  display: flex;
+  gap: 20px;
+  font-size: 0.82rem;
+  color: var(--color-mocha);
+  margin-bottom: 14px;
+}
+
+.legend-toggle span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.legend-toggle .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.legend-toggle .dot.current {
+  background: var(--color-cinnamon);
+}
+
+.legend-toggle .dot.past {
+  background: var(--color-wheat);
+}
+
+.legend-toggle .dim {
+  opacity: 0.4;
+}
+
+.bar-chart-scroll {
+  overflow-x: auto;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 9px;
+  min-width: 480px;
+}
+
+.bar-row .month-lbl {
+  font-size: 0.78rem;
+  color: var(--color-mocha);
+}
+
+.bar-track {
+  position: relative;
+  height: 20px;
+}
+
+.bar-track .bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.bar-track .bar.dark {
+  background: var(--color-cinnamon);
+  top: 0;
+}
+
+.bar-track .bar.light {
+  background: var(--color-wheat);
+  top: 11px;
+}
+
+.bar-axis {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 10px;
+  margin-top: 6px;
+  min-width: 480px;
+}
+
+.bar-axis .axis-track {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--color-mocha);
+}
+
+.donut-wrap {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-width: 210px;
+}
+
+.donut-legend li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  padding: 7px 0;
+}
+
+.donut-legend .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.donut-legend .name {
+  flex: 1;
+  color: var(--color-crust);
+  font-weight: 500;
+}
+
+.donut-legend .amt {
+  color: var(--color-mocha);
+  width: 56px;
+  text-align: right;
+}
+
+.donut-legend .pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: var(--color-field);
+  color: var(--color-crust);
+  min-width: 52px;
+  text-align: center;
+}
+
+.donut-legend .pill.down {
+  background: var(--color-crust);
+  color: var(--color-cream);
+}
+
+/* Recipes & Costing toolbar (search + add button) */
+
+.recipes-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.search-field {
+  flex: 1;
+  min-width: 220px;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-field);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  color: var(--color-mocha);
+}
+
+.search-field input {
+  flex: 1;
+  border: none;
+  background: none;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  color: var(--color-crust);
+  outline: none;
+}
+
+.search-field input::placeholder {
+  color: #A99A85;
+}
+
+/* Generic data tables */
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  min-width: 560px;
+}
+
+.data-table th {
+  background: var(--color-field);
+  color: var(--color-mocha);
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  text-align: left;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--color-wheat-line);
+}
+
+.data-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-wheat-line);
+  color: var(--color-crust);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table td a.row-action {
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.data-table input,
+.data-table select {
+  width: 100%;
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  border: 1px solid var(--color-wheat-line);
+  border-radius: 6px;
+  background: var(--color-field);
+  font-family: inherit;
+}
+
+.status-pill {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: var(--color-crust);
+  color: var(--color-cream);
+}
+
+.status-text {
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.status-text.good { color: var(--color-good-fg); }
+.status-text.bad { color: var(--color-bad-fg); }
+
+/* Info / stat boxes used inside costing panels */
+
+.info-box-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin: 18px 0;
+}
+
+.info-box {
+  background: var(--color-field);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+}
+
+.info-box.solid {
+  background: var(--color-white);
+}
+
+.info-box .info-label {
+  font-size: 0.78rem;
+  color: var(--color-mocha);
+  margin: 0 0 6px;
+}
+
+.info-box .info-value {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-crust);
+  margin: 0;
+}
+
+.info-box .info-value.accent {
+  color: var(--color-cinnamon);
+}
+
+/* Chips (small batch / standard / bulk toggle, category filters, role/status toggles) */
+
+.chip-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 4px 0 18px;
+}
+
+.chip {
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  color: var(--color-crust);
+  border-radius: var(--radius-md);
+  padding: 10px 18px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--color-cinnamon);
+}
+
+.chip.active {
+  background: var(--color-crust);
+  color: var(--color-cream);
+  border-color: var(--color-crust);
+}
+
+.chip.chip-danger {
+  color: var(--color-bad-fg);
+  border-color: #F1C6B7;
+}
+
+.chip.chip-danger:hover {
+  background: var(--color-bad-bg);
+}
+
+/* Tabs (inventory: Bread Stock / Raw Ingredients) */
+
+.tab-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 26px;
+}
+
+.tab-btn {
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  color: var(--color-crust);
+  border-radius: var(--radius-md);
+  padding: 10px 20px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  background: var(--color-crust);
+  color: var(--color-cream);
+  border-color: var(--color-crust);
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* Buttons: dark filled + outline (used across app pages) */
+
+.btn-dark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-crust);
+  color: var(--color-cream);
+  border: 1px solid var(--color-crust);
+  border-radius: var(--radius-md);
+  padding: 11px 20px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-dark:hover {
+  background: var(--color-cinnamon-dark);
+  border-color: var(--color-cinnamon-dark);
+  text-decoration: none;
+  color: var(--color-cream);
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-white);
+  color: var(--color-crust);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 11px 20px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-outline:hover {
+  border-color: var(--color-cinnamon);
+  color: var(--color-cinnamon-dark);
+}
+
+.btn-link-remove {
+  color: var(--color-cinnamon-dark);
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.btn-row {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.inline-form {
+  background: var(--color-field);
+  border: 1px dashed var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-top: 16px;
+  display: none;
+}
+
+.inline-form.is-visible {
+  display: block;
+}
+
+/* Toast */
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-crust);
+  color: var(--color-cream);
+  padding: 12px 22px;
+  border-radius: 30px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+  z-index: 60;
+  box-shadow: 0 8px 24px rgba(62,39,35,0.25);
+}
+
+.toast.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-6px);
+}
+
+/* Empty states */
+
+.empty-note {
+  color: var(--color-mocha);
+  font-size: 0.88rem;
+  padding: 14px 0;
+}
+
+/* Responsive */
+
+@media (max-width: 980px) {
+  .stat-grid, .action-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+  .app-nav {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .stat-grid, .action-grid {
+    grid-template-columns: 1fr;
+  }
+  .app-header {
+    padding: 14px 20px;
+  }
+  .app-main {
+    padding: 22px 20px 48px;
+  }
+  .hero-band h1 {
+    font-size: 2rem;
+  }
+  .page-heading {
+    font-size: 1.5rem;
+  }
+  .recipes-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .search-field {
+    max-width: none;
+  }
+}
+
+/* Reduced motion respected: no non-essential motion is used on these pages. */

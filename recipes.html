@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recipes &amp; Costing — DRR Bakery</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-brandmark">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2C9 6 7 8.5 7 11.5C7 14.5 9.2 17 12 17C14.8 17 17 14.5 17 11.5C17 8.5 15 6 12 2Z" fill="currentColor"/>
+      <path d="M6 20C6 17.7909 8.68629 16 12 16C15.3137 16 18 17.7909 18 20V21H6V20Z" fill="currentColor"/>
+    </svg>
+    <span>DRR Bakery</span>
+  </div>
+  <nav>
+    <ul class="app-nav">
+      <li><a href="dashboard.html">Dashboard</a></li>
+      <li><a href="recipes.html" class="active">Recipes &amp; Costing</a></li>
+      <li><a href="inventory.html">Inventory</a></li>
+      <li><a href="analytics.html">Analytics</a></li>
+      <li><a href="admin.html">Admin</a></li>
+    </ul>
+  </nav>
+  <button class="avatar-btn" id="avatar-btn" aria-label="Account">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="8" r="4" fill="currentColor"/>
+      <path d="M4 20c0-3.5 3.6-6 8-6s8 2.5 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+</header>
+
+<main class="app-main">
+
+  <div class="recipes-toolbar">
+    <div class="search-field">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="text" id="recipe-search" placeholder="Search for…">
+    </div>
+    <a class="btn-dark" href="recipe-form.html">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      Add bread recipe
+    </a>
+  </div>
+
+  <div class="chip-row" id="recipe-category-filters">
+    <button type="button" class="chip active" data-category="All">All</button>
+    <button type="button" class="chip" data-category="Bread Rolls">Bread Rolls</button>
+    <button type="button" class="chip" data-category="Loaves">Loaves</button>
+    <button type="button" class="chip" data-category="Pastries">Pastries</button>
+    <button type="button" class="chip" data-category="Specialty">Specialty</button>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Bread Item</th>
+          <th>Category</th>
+          <th>Batch Size</th>
+          <th>Cost per pc</th>
+          <th>Selling Price</th>
+          <th>Profit Margin %</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="recipes-list-body"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<div class="toast" id="app-toast"></div>
+
+<script src="script.js"></script>
+
+</body>
+</html>

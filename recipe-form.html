@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recipe — DRR Bakery</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-brandmark">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2C9 6 7 8.5 7 11.5C7 14.5 9.2 17 12 17C14.8 17 17 14.5 17 11.5C17 8.5 15 6 12 2Z" fill="currentColor"/>
+      <path d="M6 20C6 17.7909 8.68629 16 12 16C15.3137 16 18 17.7909 18 20V21H6V20Z" fill="currentColor"/>
+    </svg>
+    <span>DRR Bakery</span>
+  </div>
+  <nav>
+    <ul class="app-nav">
+      <li><a href="dashboard.html">Dashboard</a></li>
+      <li><a href="recipes.html" class="active">Recipes &amp; Costing</a></li>
+      <li><a href="inventory.html">Inventory</a></li>
+      <li><a href="analytics.html">Analytics</a></li>
+      <li><a href="admin.html">Admin</a></li>
+    </ul>
+  </nav>
+  <button class="avatar-btn" id="avatar-btn" aria-label="Account">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="8" r="4" fill="currentColor"/>
+      <path d="M4 20c0-3.5 3.6-6 8-6s8 2.5 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+</header>
+
+<main class="app-main">
+  <div class="page-heading-row">
+    <h1 class="page-heading" id="recipe-form-heading">New Bread Recipe</h1>
+  </div>
+
+  <input type="hidden" id="recipe-id" value="">
+
+  <div class="form-row">
+    <div class="field-group">
+      <label for="input-recipe-name">Bread item name</label>
+      <div class="field-control">
+        <input type="text" id="input-recipe-name" placeholder="e.g. Pandesal">
+      </div>
+    </div>
+    <div class="field-group">
+      <label for="input-category">Category</label>
+      <div class="field-control">
+        <select id="input-category">
+          <option value="Bread Rolls">Bread Rolls</option>
+          <option value="Loaves">Loaves</option>
+          <option value="Pastries">Pastries</option>
+          <option value="Specialty">Specialty</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <div class="field-group">
+      <label for="input-base-batch">Batch size (yield, pcs)</label>
+      <div class="field-control">
+        <input type="number" id="input-base-batch" placeholder="e.g. 95" min="0">
+      </div>
+    </div>
+    <div class="field-group">
+      <label for="input-portions-per-piece">Portions per piece</label>
+      <div class="field-control">
+        <input type="number" id="input-portions-per-piece" placeholder="e.g. 1" min="1" value="1">
+      </div>
+    </div>
+    <div class="field-group">
+      <label>Base batch size</label>
+      <div class="field-control">
+        <input type="text" value="Same as batch size above" disabled>
+      </div>
+    </div>
+  </div>
+
+  <div class="field-group">
+    <label for="input-notes">Preparation notes</label>
+    <div class="field-control">
+      <textarea id="input-notes" placeholder="Mixing, proofing, and baking notes for this batch…"></textarea>
+    </div>
+  </div>
+
+  <h2 class="section-title">Ingredients Used</h2>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr><th>Ingredient</th><th>Category</th><th>Unit</th><th>Cost/Unit</th><th>Ingredient Cost</th><th></th></tr>
+      </thead>
+      <tbody id="recipe-ingredients-body"></tbody>
+    </table>
+  </div>
+
+  <div class="form-row" style="margin-top:16px;align-items:flex-end;">
+    <div class="field-group" style="flex:2;">
+      <label for="select-ingredient">Pick from inventory</label>
+      <div class="field-control">
+        <select id="select-ingredient"></select>
+      </div>
+    </div>
+    <div class="field-group">
+      <label for="input-ing-qty">Quantity used</label>
+      <div class="field-control">
+        <input type="number" id="input-ing-qty" placeholder="e.g. 1000" min="0">
+      </div>
+    </div>
+    <div class="field-group" style="flex:0 0 auto;">
+      <button class="btn-outline" id="add-ingredient-line" type="button">+ Add ingredient</button>
+    </div>
+  </div>
+  <p class="empty-note" style="margin-top:-8px;">Need something new? <a href="inventory.html?add=1">Edit ingredient from inventory</a></p>
+
+  <div class="info-box-row">
+    <div class="info-box">
+      <p class="info-label">Total Batch Cost</p>
+      <p class="info-value" id="total-batch-cost">₱0</p>
+    </div>
+    <div class="info-box">
+      <p class="info-label">Cost Per Piece</p>
+      <p class="info-value" id="cost-per-piece">₱0</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">Recipe Scaling</h2>
+  <div class="form-row">
+    <div class="field-group">
+      <label for="input-target-foodcost">Target food cost %</label>
+      <div class="field-control">
+        <input type="number" id="input-target-foodcost" placeholder="e.g. 30" min="1" max="95">
+      </div>
+    </div>
+    <div class="field-group">
+      <label for="input-selling-price">Selling price</label>
+      <div class="field-control">
+        <input type="number" id="input-selling-price" placeholder="e.g. 6.90" min="0" step="0.01">
+      </div>
+    </div>
+    <div class="info-box solid" style="flex:1;">
+      <p class="info-label">Suggested selling price</p>
+      <p class="info-value accent" id="suggested-selling-price">₱0</p>
+    </div>
+  </div>
+  <div class="chip-row">
+    <button type="button" class="chip active" data-scale="0.5">Small Batch (÷2)</button>
+    <button type="button" class="chip" data-scale="1">Standard (Base batch size)</button>
+    <button type="button" class="chip" data-scale="2">Bulk (x2)</button>
+  </div>
+
+  <h2 class="section-title">Pricing</h2>
+  <div class="form-row">
+    <div class="field-group">
+      <label>Target food cost %</label>
+      <div class="field-control"><input type="text" disabled placeholder="Set above"></div>
+    </div>
+    <div class="info-box solid">
+      <p class="info-label">Total batch cost</p>
+      <p class="info-value" id="pricing-total-batch-cost">₱0</p>
+    </div>
+    <div class="info-box solid">
+      <p class="info-label">Cost per piece</p>
+      <p class="info-value" id="pricing-cost-per-piece">₱0</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">Loss Check</h2>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Proposed Price</th><th>Resulting Food Cost %</th><th>Status</th></tr></thead>
+      <tbody id="loss-check-body"></tbody>
+    </table>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-dark" id="save-recipe-btn" type="button">Save recipe</button>
+  </div>
+
+</main>
+
+<div class="toast" id="app-toast"></div>
+
+<script src="script.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Record Sale — DRR Bakery</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-brandmark">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2C9 6 7 8.5 7 11.5C7 14.5 9.2 17 12 17C14.8 17 17 14.5 17 11.5C17 8.5 15 6 12 2Z" fill="currentColor"/>
+      <path d="M6 20C6 17.7909 8.68629 16 12 16C15.3137 16 18 17.7909 18 20V21H6V20Z" fill="currentColor"/>
+    </svg>
+    <span>DRR Bakery</span>
+  </div>
+  <nav>
+    <ul class="app-nav">
+      <li><a href="dashboard.html">Dashboard</a></li>
+      <li><a href="recipes.html">Recipes &amp; Costing</a></li>
+      <li><a href="inventory.html">Inventory</a></li>
+      <li><a href="analytics.html">Analytics</a></li>
+      <li><a href="admin.html">Admin</a></li>
+    </ul>
+  </nav>
+  <button class="avatar-btn" id="avatar-btn" aria-label="Account">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="8" r="4" fill="currentColor"/>
+      <path d="M4 20c0-3.5 3.6-6 8-6s8 2.5 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+</header>
+
+<main class="app-main narrow">
+  <div class="page-heading-row">
+    <h1 class="page-heading">Record sale</h1>
+  </div>
+
+  <div class="form-row">
+    <div class="field-group">
+      <label for="sale-bread-item">Bread sold</label>
+      <div class="field-control">
+        <select id="sale-bread-item"></select>
+      </div>
+    </div>
+    <div class="field-group">
+      <label for="sale-qty">Quantity</label>
+      <div class="field-control"><input type="number" id="sale-qty" placeholder="e.g. 20" min="0"></div>
+    </div>
+    <div class="field-group">
+      <label for="sale-price">Price</label>
+      <div class="field-control"><input type="number" id="sale-price" placeholder="e.g. 5.00" min="0" step="0.01"></div>
+    </div>
+    <div class="field-group">
+      <label>Total</label>
+      <div class="field-control"><input type="text" id="sale-total" disabled></div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-dark" id="save-sale-btn" type="button">Save Sale</button>
+  </div>
+
+</main>
+
+<div class="toast" id="app-toast"></div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
