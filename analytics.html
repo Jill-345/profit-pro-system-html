@@ -35,8 +35,18 @@
 
 <main class="app-main">
   <div class="page-heading-row">
-    <h1 class="page-heading">Today's Sale</h1>
-    <button class="btn-outline" id="print-report-btn" type="button">Print Report</button>
+    <h1 class="page-heading" id="analytics-heading">Today's Sale</h1>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div class="field-control" style="min-width:170px;">
+        <select id="analytics-date-range">
+          <option value="today">Today</option>
+          <option value="7days">Last 7 days</option>
+          <option value="30days">Last 30 days</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
+      <button class="btn-outline" id="print-report-btn" type="button">Print Report</button>
+    </div>
   </div>
 
   <div class="stat-grid">

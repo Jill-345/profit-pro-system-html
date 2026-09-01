@@ -39,6 +39,7 @@
 
 <main class="app-main">
 
+<div id="admin-dashboard-sections">
   <p class="section-label">Row</p>
   <div class="stat-grid">
     <div class="stat-card">
@@ -121,6 +122,31 @@
     </div>
 
   </div>
+</div>
+
+<div id="staff-dashboard" style="display:none;">
+  <p class="section-label">Your Shift</p>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <p class="stat-label">My Shift Sales (Today)</p>
+      <p class="stat-value" id="staff-stat-sales">₱ 0</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Items Sold Today</p>
+      <p class="stat-value" id="staff-stat-items">0</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Low Stock Alerts</p>
+      <p class="stat-value" id="staff-stat-lowstock">0</p>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:0;">Sales You've Logged Today</h2>
+  <div class="panel">
+    <ul class="donut-legend" id="staff-recent-sales"></ul>
+  </div>
+</div>
+
 </main>
 
 <div class="toast" id="app-toast"></div>
