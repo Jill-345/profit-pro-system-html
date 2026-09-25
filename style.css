@@ -1384,6 +1384,31 @@ button {
   border-color: var(--color-crust);
 }
 
+.chip[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.locked-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--color-field);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-size: 0.85rem;
+  color: var(--color-crust);
+  line-height: 1.5;
+}
+
+.locked-notice svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-mocha);
+}
+
 .chip.chip-danger {
   color: var(--color-bad-fg);
   border-color: #F1C6B7;

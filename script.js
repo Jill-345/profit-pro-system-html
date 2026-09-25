@@ -73,10 +73,11 @@
   }
 
   function isValidPassword(value) {
-    var hasLetter = /[A-Za-z]/.test(value);
+    var hasLower = /[a-z]/.test(value);
+    var hasUpper = /[A-Z]/.test(value);
     var hasNumber = /[0-9]/.test(value);
     var hasSymbol = /[^A-Za-z0-9]/.test(value);
-    return value.length >= 8 && hasLetter && hasNumber && hasSymbol;
+    return value.length >= 8 && hasLower && hasUpper && hasNumber && hasSymbol;
   }
 
   function setFieldError(inputId, message) {
@@ -219,7 +220,7 @@
       if (!password) {
         setFieldError("password", "Password is required."); hasError = true;
       } else if (!isValidPassword(password)) {
-        setFieldError("password", "Use at least 8 characters, with a letter, a number, and a symbol."); hasError = true;
+        setFieldError("password", "Use at least 8 characters, with an uppercase letter, a lowercase letter, a number, and a symbol."); hasError = true;
       }
       if (hasError) return;
 
@@ -700,10 +701,25 @@
     var session = { id: supaSession.user.id, firstName: firstName, email: profile.email, role: profile.role };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 
-    // Enforce which roles may open this page.
+    // Enforce which roles may open this page — with one narrow exception:
+    // if the whole system currently has ZERO Super Admins (e.g. the sole
+    // Super Admin's row was removed outside the app), an Admin is allowed
+    // onto the account-management pages just long enough to promote
+    // someone back into that role. The moment a Super Admin exists again,
+    // this exception stops applying.
     var page = currentPageFile();
     var allowedRoles = ROUTE_ROLES[page];
-    if (allowedRoles && allowedRoles.indexOf(session.role) === -1) {
+    var recoveryPages = ["admin.html", "edit-account.html", "invite-account.html"];
+    var isAllowed = !allowedRoles || allowedRoles.indexOf(session.role) !== -1;
+
+    if (!isAllowed && session.role === "Admin" && recoveryPages.indexOf(page) !== -1) {
+      var superAdminCheck = await supabaseClient.from("profiles").select("id").eq("role", "Super Admin").limit(1);
+      if (!superAdminCheck.data || !superAdminCheck.data.length) {
+        isAllowed = true; // recovery mode: no Super Admin exists anywhere right now
+      }
+    }
+
+    if (!isAllowed) {
       setFlash("You don't have access to that page.");
       window.location.href = "dashboard.html";
       return false;
@@ -748,63 +764,198 @@
      no external AI API is called, so this works fully offline of any key.
      ======================================================================= */
 
-  async function generateBusinessInsights() {
-    var insights = [];
+  var RESTRICTED_REPLY = "Sorry, you don't have permission to access pricing or profitability information.";
 
-    var recipesResult = await supabaseClient.from("recipes").select("*");
-    var recipes = recipesResult.data || [];
+  // Fetches role-shaped data from the backend. This is the ONLY place the
+  // chat gets its numbers from — the Postgres function get_ai_chat_context()
+  // checks the caller's real role server-side and simply never includes
+  // cost/price/revenue/profit fields for Staff, no matter what's asked.
+  async function fetchAiChatContext() {
+    var result = await supabaseClient.rpc("get_ai_chat_context");
+    return result.data || { role: getCurrentRole(), is_privileged: false, recipes: [], ingredients: [], sales: [], low_stock: [], target_food_cost_pct: 30 };
+  }
 
-    var salesResult = await supabaseClient.from("sales").select("recipe_id, quantity, recipes(name)");
-    var sales = salesResult.data || [];
+  // Turns the raw context into ranked, ready-to-quote facts. Every number
+  // in the eventual chat reply traces back to something in this object.
+  function analyzeContext(ctx) {
+    var isPrivileged = !!ctx.is_privileged;
 
-    var ingredientsResult = await supabaseClient.from("ingredients").select("*");
-    var ingredients = ingredientsResult.data || [];
-
-    var settingsResult = await supabaseClient.from("business_settings").select("target_food_cost_pct").eq("id", 1).maybeSingle();
-    var targetPct = (settingsResult.data && settingsResult.data.target_food_cost_pct) || 30;
-
-    var soldRecipeIds = {};
-    var qtyByRecipeName = {};
-    sales.forEach(function (s) {
-      soldRecipeIds[s.recipe_id] = true;
-      var name = s.recipes ? s.recipes.name : "Unknown";
-      qtyByRecipeName[name] = (qtyByRecipeName[name] || 0) + s.quantity;
+    var qtyByRecipe = {};
+    var revenueByRecipe = {};
+    ctx.sales.forEach(function (s) {
+      qtyByRecipe[s.recipe_name] = (qtyByRecipe[s.recipe_name] || 0) + s.quantity;
+      if (isPrivileged) revenueByRecipe[s.recipe_name] = (revenueByRecipe[s.recipe_name] || 0) + s.total_amount;
     });
+    var soldNames = Object.keys(qtyByRecipe);
 
-    var unsold = recipes.filter(function (r) { return !soldRecipeIds[r.id]; });
-    if (unsold.length) {
-      insights.push({
-        type: "unsold",
-        text: unsold.slice(0, 3).map(function (r) { return r.name; }).join(", ") +
-          (unsold.length === 1 ? " hasn't sold" : " haven't sold") + " a single piece yet \u2014 maybe try a promo or a smaller test batch."
-      });
+    var unsold = ctx.recipes.filter(function (r) { return soldNames.indexOf(r.name) === -1; });
+
+    var topSellerByQty = null;
+    if (soldNames.length) {
+      soldNames.sort(function (a, b) { return qtyByRecipe[b] - qtyByRecipe[a]; });
+      topSellerByQty = { name: soldNames[0], qty: qtyByRecipe[soldNames[0]] };
     }
 
-    recipes.forEach(function (r) {
-      if (r.selling_price > 0) {
-        var pct = (r.cost_per_piece / r.selling_price) * 100;
-        if (pct > 0 && pct < targetPct - 10) {
-          insights.push({ type: "underpriced", text: r.name + " is priced well under its target food cost (" + pct.toFixed(0) + "% vs " + targetPct + "% target) \u2014 there may be room to raise the price a bit." });
-        } else if (pct > targetPct + 10) {
-          insights.push({ type: "overpriced", text: r.name + " is running a high food cost (" + pct.toFixed(0) + "%) against your " + targetPct + "% target \u2014 worth reviewing its price or recipe cost." });
+    var margins = [];
+    if (isPrivileged) {
+      ctx.recipes.forEach(function (r) {
+        if (r.selling_price > 0) {
+          margins.push({
+            name: r.name,
+            margin: ((r.selling_price - r.cost_per_piece) / r.selling_price) * 100,
+            cost: r.cost_per_piece,
+            price: r.selling_price
+          });
         }
-      }
+      });
+      margins.sort(function (a, b) { return b.margin - a.margin; });
+    }
+
+    var highCostIngredients = [];
+    if (isPrivileged) {
+      highCostIngredients = ctx.ingredients
+        .filter(function (i) { return i.baseline_cost_per_unit > 0; })
+        .map(function (i) { return { name: i.name, delta: ((i.cost_per_unit - i.baseline_cost_per_unit) / i.baseline_cost_per_unit) * 100, cost: i.cost_per_unit }; })
+        .filter(function (i) { return i.delta > 5; })
+        .sort(function (a, b) { return b.delta - a.delta; });
+    }
+
+    return {
+      role: ctx.role, isPrivileged: isPrivileged, margins: margins, unsold: unsold,
+      topSellerByQty: topSellerByQty, revenueByRecipe: revenueByRecipe, qtyByRecipe: qtyByRecipe,
+      highCostIngredients: highCostIngredients, lowStock: ctx.low_stock || [], targetPct: ctx.target_food_cost_pct || 30,
+      hasAnyRecipes: ctx.recipes.length > 0, hasAnySales: ctx.sales.length > 0
+    };
+  }
+
+  // ---- Recommendation Engine: each fn below explains WHY, grounded in a.* figures ----
+
+  function recIncreaseProfit(a) {
+    if (!a.margins.length) return "I don't have enough recipe pricing data yet to ground a recommendation \u2014 add selling prices to your recipes first.";
+    var parts = [];
+    var best = a.margins[0];
+    parts.push("focus more on " + best.name + ", which has your best margin right now at " + best.margin.toFixed(0) + "%");
+    var weak = a.margins.filter(function (m) { return m.margin < 40; });
+    if (weak.length) parts.push("review pricing on " + weak.slice(0, 2).map(function (m) { return m.name + " (" + m.margin.toFixed(0) + "% margin)"; }).join(" and "));
+    if (a.highCostIngredients.length) parts.push("keep an eye on " + a.highCostIngredients[0].name + ", which has risen " + a.highCostIngredients[0].delta.toFixed(0) + "% in cost since it was first logged");
+    return "Based on the current product and profitability data, I'd " + parts.join("; also ") + ". That combination \u2014 leaning on your strongest margins while fixing your weakest \u2014 is usually the fastest way to move overall profit.";
+  }
+
+  function recBestMargin(a) {
+    if (!a.margins.length) return "No recipes have both a cost and a selling price set yet, so I can't calculate margins.";
+    var best = a.margins[0];
+    return best.name + " has your best profit margin right now, at " + best.margin.toFixed(0) + "% (\u20B1" + (best.price - best.cost).toFixed(2) + " profit per piece, selling at \u20B1" + best.price.toFixed(2) + "). Worth prioritizing in promotions or batch size.";
+  }
+
+  function recWorstMargin(a) {
+    if (!a.margins.length) return "No recipes have both a cost and a selling price set yet, so I can't calculate margins.";
+    var worst = a.margins[a.margins.length - 1];
+    return worst.name + " has your thinnest margin at " + worst.margin.toFixed(0) + "% \u2014 costing \u20B1" + worst.cost.toFixed(2) + " against a \u20B1" + worst.price.toFixed(2) + " selling price. Consider raising its price or trimming its ingredient cost.";
+  }
+
+  function recReduceCosts(a) {
+    if (!a.highCostIngredients.length) return "None of your ingredients have moved more than 5% above their originally logged cost \u2014 nothing stands out as a cost driver right now.";
+    var top = a.highCostIngredients.slice(0, 3);
+    return "Since being added, " + top.map(function (i) { return i.name + " (+" + i.delta.toFixed(0) + "%)"; }).join(", ") + " " + (top.length > 1 ? "have" : "has") + " gone up the most in cost. Those are the ingredients most worth negotiating with suppliers on, or swapping recipes to use less of.";
+  }
+
+  function recImprovePricing(a) {
+    if (!a.margins.length) return "I don't have pricing data to compare against your " + a.targetPct + "% target food cost yet.";
+    var offTarget = a.margins.filter(function (m) {
+      var costPct = m.price > 0 ? (m.cost / m.price) * 100 : 0;
+      return Math.abs(costPct - a.targetPct) > 10;
     });
+    if (!offTarget.length) return "Your pricing is holding close to your " + a.targetPct + "% target food cost across the board \u2014 nothing urgent to change.";
+    return offTarget.slice(0, 3).map(function (m) {
+      var costPct = (m.cost / m.price) * 100;
+      return m.name + " is running " + costPct.toFixed(0) + "% food cost against your " + a.targetPct + "% target";
+    }).join("; ") + ". Adjusting those prices (or the recipes behind them) would bring them back in line.";
+  }
 
-    var lowStock = ingredients.filter(function (i) { return i.low_stock_threshold != null && i.stock_qty <= i.low_stock_threshold; });
-    if (lowStock.length) {
-      insights.push({ type: "lowstock", text: lowStock.slice(0, 3).map(function (i) { return i.name; }).join(", ") + " running low on stock \u2014 restock soon to avoid a production gap." });
+  function recNotPerforming(a) {
+    var msgs = [];
+    if (a.unsold.length) msgs.push(a.unsold.slice(0, 3).map(function (r) { return r.name; }).join(", ") + " " + (a.unsold.length === 1 ? "hasn't" : "haven't") + " sold at all yet");
+    if (a.isPrivileged && a.margins.length) {
+      var low = a.margins.filter(function (m) { return m.margin < 30; });
+      if (low.length) msgs.push(low.slice(0, 2).map(function (m) { return m.name; }).join(", ") + " " + (low.length === 1 ? "is" : "are") + " selling but at a thin margin (under 30%)");
     }
+    if (!msgs.length) return "Nothing stands out as underperforming right now \u2014 every recipe has sold, and margins look reasonable.";
+    return msgs.join(", and ") + ". " + (a.isPrivileged ? "Worth a promo push, a smaller test batch, or a price/recipe review." : "");
+  }
 
-    var names = Object.keys(qtyByRecipeName);
-    var bestSeller = null;
-    if (names.length) {
-      names.sort(function (a, b) { return qtyByRecipeName[b] - qtyByRecipeName[a]; });
-      bestSeller = { name: names[0], qty: qtyByRecipeName[names[0]] };
-      insights.push({ type: "bestseller", text: bestSeller.name + " is your best seller so far, with " + bestSeller.qty + " pcs sold." });
+  function recRemoveProducts(a) {
+    if (!a.isPrivileged) return null; // handled by restriction check before this is called
+    var candidates = a.margins.filter(function (m) {
+      var unsoldMatch = a.unsold.some(function (u) { return u.name === m.name; });
+      return m.margin < 25 || unsoldMatch;
+    });
+    if (!candidates.length) return "Nothing looks like a clear candidate to drop \u2014 everything is either selling or holding a reasonable margin.";
+    return candidates.slice(0, 3).map(function (m) { return m.name; }).join(", ") + " " + (candidates.length === 1 ? "stands out" : "stand out") + " as worth reconsidering \u2014 low margin and/or no sales yet. Before cutting them, try a price adjustment or a smaller batch size first.";
+  }
+
+  function recPrioritize(a) {
+    var parts = [];
+    if (a.topSellerByQty) parts.push(a.topSellerByQty.name + " is your top seller by volume (" + a.topSellerByQty.qty + " pcs)");
+    if (a.isPrivileged && a.margins.length) parts.push(a.margins[0].name + " has your best margin (" + a.margins[0].margin.toFixed(0) + "%)");
+    if (!parts.length) return "Not enough sales data yet to prioritize by \u2014 record a few sales first.";
+    return "I'd prioritize based on: " + parts.join(", and ") + ". " + (a.topSellerByQty && a.isPrivileged && a.margins.length && a.topSellerByQty.name !== a.margins[0].name ? "If those are two different items, that's worth noting \u2014 your most popular item isn't your most profitable one." : "");
+  }
+
+  var INTENTS = [
+    // ---- Safe for every role (no cost/price/revenue/profit involved) ----
+    { pattern: /low.?stock|restock|running out/i, restricted: false, handler: function (a) {
+      return a.lowStock.length
+        ? "These are running low: " + a.lowStock.map(function (i) { return i.name + " (" + i.stock_qty + " " + i.unit + " left)"; }).join(", ") + "."
+        : "Nothing's below its low-stock threshold right now \u2014 you're good.";
+    }},
+    { pattern: /best.?sell|top.?sell|most popular|most sold/i, restricted: false, handler: function (a) {
+      if (!a.topSellerByQty) return "No sales recorded yet, so nothing to rank.";
+      var extra = a.isPrivileged && a.revenueByRecipe[a.topSellerByQty.name] ? " (\u20B1" + a.revenueByRecipe[a.topSellerByQty.name].toFixed(0) + " in revenue)" : "";
+      return a.topSellerByQty.name + " is your best seller so far, with " + a.topSellerByQty.qty + " pcs sold" + extra + ".";
+    }},
+    { pattern: /unsold|no sales|haven'?t sold/i, restricted: false, handler: function (a) {
+      return a.unsold.length
+        ? a.unsold.map(function (r) { return r.name; }).join(", ") + " " + (a.unsold.length === 1 ? "hasn't" : "haven't") + " sold at all yet."
+        : "Every recipe has sold at least once \u2014 nice.";
+    }},
+    { pattern: /^(hi|hello|hey)\b/i, restricted: false, handler: function (a) {
+      return a.isPrivileged
+        ? "Hey! I can help with stock, sales, pricing, margins, or recommendations \u2014 what do you want to check?"
+        : "Hey! I can help with stock levels and best sellers \u2014 what do you want to check?";
+    }},
+    { pattern: /help|what can you|what do you do/i, restricted: false, handler: function (a) {
+      return a.isPrivileged
+        ? "Ask me things like \"how's my pricing?\", \"what's our best margin?\", \"which ingredients cost the most?\", or \"what do you suggest to increase profit?\" \u2014 I pull straight from your live recipes, ingredients, and sales."
+        : "Ask me about stock levels, low-stock alerts, or best sellers. Pricing and profit details are limited to Admin and Super Admin accounts.";
+    }},
+
+    // ---- Restricted: profit, margin, pricing, cost, revenue, recommendations ----
+    { pattern: /increase.*profit|higher profit|profit higher|improve.*profit|profitability|recommend.*(improv|business)/i, restricted: true, handler: recIncreaseProfit },
+    { pattern: /best.*margin|highest.*margin/i, restricted: true, handler: recBestMargin },
+    { pattern: /worst.*margin|lowest.*margin|low.*margin/i, restricted: true, handler: recWorstMargin },
+    { pattern: /reduce.*cost|lower.*cost|cutting.*cost|costing.*(most|much)|expensive ingredient/i, restricted: true, handler: recReduceCosts },
+    { pattern: /improve.*pricing|pricing.*improve|how.*price/i, restricted: true, handler: recImprovePricing },
+    { pattern: /not performing|underperform|performing well/i, restricted: true, handler: recNotPerforming },
+    { pattern: /remov\w*|discontinue|drop.*product|chang(e|ing).*product/i, restricted: true, handler: recRemoveProducts },
+    { pattern: /prioritize|focus on selling|promote more|should we (focus|sell)/i, restricted: true, handler: recPrioritize },
+    { pattern: /margin/i, restricted: true, handler: recBestMargin },
+    { pattern: /profit|price|pricing|cost|revenue|expensive/i, restricted: true, handler: function (a) { return recImprovePricing(a); } }
+  ];
+
+  function classifyAndAnswer(userText, a) {
+    var q = userText.trim();
+    for (var i = 0; i < INTENTS.length; i++) {
+      var intent = INTENTS[i];
+      if (intent.pattern.test(q)) {
+        if (intent.restricted && !a.isPrivileged) return RESTRICTED_REPLY;
+        var result = intent.handler(a);
+        if (result) return result;
+      }
     }
-
-    return { insights: insights, recipes: recipes, ingredients: ingredients, lowStock: lowStock, bestSeller: bestSeller, qtyByRecipeName: qtyByRecipeName, unsold: unsold, targetPct: targetPct };
+    // Fallback: general/off-topic question this rule-based assistant can't ground in data.
+    return a.isPrivileged
+      ? "I'm focused on your bakery's own data \u2014 recipes, pricing, sales, and stock. Try asking about margins, best sellers, low stock, or how to improve profit."
+      : "I'm focused on your bakery's own data \u2014 stock levels and best sellers. Try asking about those.";
   }
 
   function initAiChatWidget() {
@@ -817,7 +968,9 @@
     fab.setAttribute("aria-label", "Open bakery assistant chat");
     fab.innerHTML =
       '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-      '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8A2.5 2.5 0 0 1 17.5 16H9l-4.2 3.6A.6.6 0 0 1 4 19.1V5.5Z" fill="currentColor"/>' +
+
+      '<path d="M12 2.5c.5 3.2 1.1 5.3 2.3 6.5 1.2 1.2 3.3 1.8 6.5 2.3-3.2.5-5.3 1.1-6.5 2.3-1.2 1.2-1.8 3.3-2.3 6.5-.5-3.2-1.1-5.3-2.3-6.5-1.2-1.2-3.3-1.8-6.5-2.3 3.2-.5 5.3-1.1 6.5-2.3 1.2-1.2 1.8-3.3 2.3-6.5Z" fill="currentColor"/>' +
+      '<path d="M19 2.8c.2 1.2.5 2 1 2.5.5.5 1.3.8 2.5 1-1.2.2-2 .5-2.5 1-.5.5-.8 1.3-1 2.5-.2-1.2-.5-2-1-2.5-.5-.5-1.3-.8-2.5-1 1.2-.2 2-.5 2.5-1 .5-.5.8-1.3 1-2.5Z" fill="currentColor" opacity="0.75"/>' +
       '</svg><span class="ai-chat-badge"></span>';
     document.body.appendChild(fab);
 
@@ -826,7 +979,7 @@
     panel.className = "ai-chat-panel";
     panel.innerHTML =
       '<div class="ai-chat-header">' +
-        '<div class="ai-chat-avatar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C9 6 7 8.5 7 11.5C7 14.5 9.2 17 12 17C14.8 17 17 14.5 17 11.5C17 8.5 15 6 12 2Z" fill="currentColor"/><path d="M6 20C6 17.7909 8.68629 16 12 16C15.3137 16 18 17.7909 18 20V21H6V20Z" fill="currentColor"/></svg></div>' +
+        '<div class="ai-chat-avatar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.5c.5 3.2 1.1 5.3 2.3 6.5 1.2 1.2 3.3 1.8 6.5 2.3-3.2.5-5.3 1.1-6.5 2.3-1.2 1.2-1.8 3.3-2.3 6.5-.5-3.2-1.1-5.3-2.3-6.5-1.2-1.2-3.3-1.8-6.5-2.3 3.2-.5 5.3-1.1 6.5-2.3 1.2-1.2 1.8-3.3 2.3-6.5Z" fill="currentColor"/></svg></div>' +
         '<div class="ai-chat-header-text">' +
           '<p class="ai-chat-title">Bakery Assistant</p>' +
           '<p class="ai-chat-subtitle"><span class="dot"></span>Reads your live data</p>' +
@@ -884,35 +1037,17 @@
       });
     }
 
+    async function getAnalysis() {
+      if (lastContext) return lastContext;
+      var ctx = await fetchAiChatContext();
+      lastContext = analyzeContext(ctx);
+      return lastContext;
+    }
+
     async function botReply(userText) {
       showTyping();
-      var ctx = lastContext || await generateBusinessInsights();
-      lastContext = ctx;
-      var q = userText.toLowerCase();
-      var reply;
-
-      if (/low.?stock|restock|running out/.test(q)) {
-        reply = ctx.lowStock.length
-          ? "These are running low: " + ctx.lowStock.map(function (i) { return i.name + " (" + i.stock_qty + " " + i.unit + " left)"; }).join(", ") + "."
-          : "Nothing's below its low-stock threshold right now \u2014 you're good.";
-      } else if (/best.?sell|top.?sell|popular/.test(q)) {
-        reply = ctx.bestSeller ? ctx.bestSeller.name + " is your best seller so far, with " + ctx.bestSeller.qty + " pcs sold." : "No sales recorded yet, so nothing to rank.";
-      } else if (/unsold|not selling|no sales/.test(q)) {
-        reply = ctx.unsold.length
-          ? ctx.unsold.map(function (r) { return r.name; }).join(", ") + " " + (ctx.unsold.length === 1 ? "hasn't" : "haven't") + " sold at all yet."
-          : "Every recipe has sold at least once \u2014 nice.";
-      } else if (/profit|margin|price|pricing|expensive|cost/.test(q)) {
-        var priceMsgs = ctx.insights.filter(function (i) { return i.type === "underpriced" || i.type === "overpriced"; }).map(function (i) { return i.text; });
-        reply = priceMsgs.length ? priceMsgs.join(" ") : "Pricing looks close to your " + ctx.targetPct + "% target food cost across the board.";
-      } else if (/hi|hello|hey/.test(q)) {
-        reply = "Hey! I can help with stock levels, best sellers, pricing, or unsold items \u2014 what do you want to check?";
-      } else if (/help|what can you|what do you do/.test(q)) {
-        reply = "Ask me things like \"any low stock?\", \"what's my best seller?\", \"any unsold bread?\", or \"how's my pricing?\" \u2014 I pull straight from your current recipes, ingredients, and sales.";
-      } else {
-        reply = ctx.insights.length
-          ? ctx.insights[0].text + (ctx.insights.length > 1 ? " I've got a few more \u2014 try asking about stock, best sellers, or pricing." : "")
-          : "Everything looks steady right now \u2014 no alerts on stock, pricing, or unsold items.";
-      }
+      var a = await getAnalysis();
+      var reply = classifyAndAnswer(userText, a);
 
       setTimeout(function () {
         hideTyping();
@@ -939,18 +1074,24 @@
       if (!hasGreeted) {
         hasGreeted = true;
         showTyping();
-        var ctx = await generateBusinessInsights();
-        lastContext = ctx;
+        var a = await getAnalysis();
         setTimeout(function () {
           hideTyping();
           var name = currentUserName();
-          if (ctx.insights.length) {
-            addMessage("Hi " + name + "! Here's what stands out right now:", "bot");
-            ctx.insights.slice(0, 3).forEach(function (i) { addMessage(i.text, "bot"); });
+          var openingLine = a.isPrivileged
+            ? recIncreaseProfit(a)
+            : (a.lowStock.length
+                ? "These are running low: " + a.lowStock.map(function (i) { return i.name; }).join(", ") + "."
+                : (a.topSellerByQty ? a.topSellerByQty.name + " is your best seller so far, with " + a.topSellerByQty.qty + " pcs sold." : "Nothing urgent to flag right now."));
+
+          addMessage("Hi " + name + "! " + (a.isPrivileged ? "Here's a quick read on things:" : "Here's what I can tell you right now:"), "bot");
+          addMessage(openingLine, "bot");
+
+          if (a.isPrivileged) {
+            setQuickReplies(["Best margin?", "What's costing us the most?", "Any unsold items?", "How's my pricing?"]);
           } else {
-            addMessage("Hi " + name + "! Nothing urgent to flag right now \u2014 stock, pricing, and sales all look steady.", "bot");
+            setQuickReplies(["Low stock?", "Best seller?", "Any unsold items?"]);
           }
-          setQuickReplies(["Low stock?", "Best seller?", "Any unsold items?", "How's my pricing?"]);
         }, 500);
       }
     }
@@ -1584,13 +1725,38 @@
           "<td>" + Number(ing.stock_qty).toLocaleString() + " " + ing.unit + "</td>" +
           "<td>" + (ing.low_stock_threshold != null ? ing.low_stock_threshold : "\u2014") + "</td>" +
           "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>" +
-          '<td><a href="#" class="row-action" data-edit="' + ing.id + '">Edit</a></td>';
+          '<td><a href="#" class="row-action" data-edit="' + ing.id + '">Edit</a></td>' +
+          '<td><button type="button" class="btn-link-remove" data-delete="' + ing.id + '">Delete</button></td>';
         body.appendChild(tr);
       });
       body.querySelectorAll("[data-edit]").forEach(function (link) {
         link.addEventListener("click", function (e) {
           e.preventDefault();
           toggleEditRow(link.getAttribute("data-edit"));
+        });
+      });
+      body.querySelectorAll("[data-delete]").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var ing = ingredients.find(function (i) { return i.id === btn.getAttribute("data-delete"); });
+          if (!ing) return;
+          if (!confirm('Delete "' + ing.name + '"? This can\'t be undone.')) return;
+
+          btn.disabled = true;
+          var deleteResult = await supabaseClient.from("ingredients").delete().eq("id", ing.id);
+          if (deleteResult.error) {
+            btn.disabled = false;
+            if (deleteResult.error.code === "23503") {
+              toast("Can't delete \u2014 " + ing.name + " is used in a recipe. Remove it from that recipe first.");
+            } else {
+              toast("Couldn't delete: " + deleteResult.error.message);
+            }
+            return;
+          }
+
+          ingredients = ingredients.filter(function (i) { return i.id !== ing.id; });
+          await logActivitySupa("Deleted raw ingredient - " + ing.name);
+          renderIngredientTable();
+          toast(ing.name + " deleted.");
         });
       });
     }
@@ -1609,7 +1775,8 @@
             '<td><input type="number" step="1" id="edit-stock-' + ing.id + '" value="' + ing.stock_qty + '"></td>' +
             '<td><input type="number" step="1" id="edit-lowstock-' + ing.id + '" value="' + (ing.low_stock_threshold != null ? ing.low_stock_threshold : "") + '"></td>' +
             '<td>' + new Date(ing.updated_at).toLocaleDateString() + '</td>' +
-            '<td><a href="#" class="row-action" data-save="' + ing.id + '">Save</a></td>';
+            '<td><a href="#" class="row-action" data-save="' + ing.id + '">Save</a></td>' +
+            '<td></td>';
           tr.querySelector("[data-save]").addEventListener("click", async function (e) {
             e.preventDefault();
             var newCost = parseFloat(document.getElementById("edit-cost-" + ing.id).value);
@@ -1891,14 +2058,16 @@
       var entries = result.data || [];
       logBody.innerHTML = "";
       if (!entries.length) {
-        logBody.innerHTML = '<tr><td colspan="3" class="empty-note">No activity yet.</td></tr>';
+        logBody.innerHTML = '<tr><td colspan="4" class="empty-note">No activity yet.</td></tr>';
         return;
       }
       entries.forEach(function (entry) {
         var tr = document.createElement("tr");
-        var dateLabel = new Date(entry.created_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+        var when = new Date(entry.created_at);
+        var dateLabel = when.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+        var timeLabel = when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
         var userName = entry.profiles ? entry.profiles.full_name : "Unknown";
-        tr.innerHTML = "<td>" + dateLabel + "</td><td>" + userName + "</td><td>" + entry.action + "</td>";
+        tr.innerHTML = "<td>" + dateLabel + "</td><td>" + timeLabel + "</td><td>" + userName + "</td><td>" + entry.action + "</td>";
         logBody.appendChild(tr);
       });
     }
@@ -2016,20 +2185,83 @@
       document.getElementById("edit-account-id").value = acc.id;
       nameInput.value = acc.full_name;
       document.getElementById("edit-account-email").value = acc.email;
-      setRoleUI(acc.role);
       setStatusUI(acc.status === "Active" ? "Active" : "Inactive");
 
-      document.querySelectorAll("#edit-role-toggle .chip").forEach(function (chip) {
-        chip.addEventListener("click", async function () {
-          var role = chip.getAttribute("data-role");
-          var updateResult = await supabaseClient.from("profiles").update({ role: role }).eq("id", acc.id);
-          if (updateResult.error) { toast("Couldn't update role: " + updateResult.error.message); return; }
-          acc.role = role;
-          setRoleUI(role);
-          await logActivitySupa("Updated account role - " + acc.full_name + " (" + role + ")");
-          toast(acc.full_name + "'s role set to " + role + ".");
+      var isSuperAdmin = acc.role === "Super Admin";
+      var superAdminSection = document.getElementById("super-admin-section");
+      var deleteBtn = document.getElementById("delete-account-btn");
+      var deactivateBtn = document.getElementById("deactivate-account-btn");
+
+      if (isSuperAdmin) {
+        // There's only ever one Super Admin — lock the role toggle entirely
+        // and block deleting/deactivating this account directly. To hand
+        // off ownership, open a DIFFERENT account's Edit page and click its
+        // Super Admin chip instead — that's the only way to transfer it.
+        setRoleUI("Super Admin");
+        document.querySelectorAll("#edit-role-toggle .chip").forEach(function (chip) {
+          chip.setAttribute("disabled", "disabled");
         });
-      });
+        deleteBtn.setAttribute("disabled", "disabled");
+        deactivateBtn.setAttribute("disabled", "disabled");
+
+        superAdminSection.innerHTML =
+          '<div class="locked-notice">' +
+          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 11V8a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.8"/></svg>' +
+          '<span>This is the Super Admin account. There can only be one Super Admin, so its role can\'t be changed and it can\'t be deleted or deactivated here. To hand off ownership, go to a different Admin or Staff member\'s Edit page and click <strong>Super Admin</strong> there \u2014 they become Super Admin and this account automatically switches to Admin.</span>' +
+          '</div>';
+      } else {
+        superAdminSection.innerHTML = "";
+        setRoleUI(acc.role);
+
+        document.querySelectorAll("#edit-role-toggle .chip[data-role='Admin'], #edit-role-toggle .chip[data-role='Staff']").forEach(function (chip) {
+          chip.addEventListener("click", async function () {
+            var role = chip.getAttribute("data-role");
+            var updateResult = await supabaseClient.from("profiles").update({ role: role }).eq("id", acc.id);
+            if (updateResult.error) { toast("Couldn't update role: " + updateResult.error.message); return; }
+            acc.role = role;
+            setRoleUI(role);
+            await logActivitySupa("Updated account role - " + acc.full_name + " (" + role + ")");
+            toast(acc.full_name + "'s role set to " + role + ".");
+          });
+        });
+
+        var superAdminChip = document.querySelector("#edit-role-toggle .chip[data-role='Super Admin']");
+        superAdminChip.addEventListener("click", async function () {
+          var existingResult = await supabaseClient.from("profiles").select("id, full_name").eq("role", "Super Admin").maybeSingle();
+          var existing = existingResult.data;
+
+          var confirmMsg = existing
+            ? "Make " + acc.full_name + " the new Super Admin? " + existing.full_name + " (currently Super Admin) will be switched to Admin right after \u2014 only one Super Admin is allowed at a time."
+            : "Make " + acc.full_name + " the Super Admin? This restores Super Admin access to the system.";
+          if (!confirm(confirmMsg)) return;
+
+          superAdminChip.disabled = true;
+          var originalTargetRole = acc.role;
+
+          var promoteResult = await supabaseClient.from("profiles").update({ role: "Super Admin" }).eq("id", acc.id);
+          if (promoteResult.error) {
+            superAdminChip.disabled = false;
+            toast("Couldn't promote " + acc.full_name + ": " + promoteResult.error.message);
+            return;
+          }
+
+          if (existing && existing.id !== acc.id) {
+            var demoteResult = await supabaseClient.from("profiles").update({ role: "Admin" }).eq("id", existing.id);
+            if (demoteResult.error) {
+              // Roll back so we never end up with two Super Admins at once.
+              await supabaseClient.from("profiles").update({ role: originalTargetRole }).eq("id", acc.id);
+              superAdminChip.disabled = false;
+              toast("Couldn't finish the transfer, so it was rolled back. Try again.");
+              return;
+            }
+          }
+
+          acc.role = "Super Admin";
+          await logActivitySupa("Transferred Super Admin role to - " + acc.full_name);
+          toast(acc.full_name + " is now Super Admin \u2014 redirecting\u2026");
+          setTimeout(function () { window.location.href = "admin.html"; }, 1400);
+        });
+      }
 
       document.querySelectorAll("#edit-status-toggle .chip").forEach(function (chip) {
         chip.addEventListener("click", async function () {
@@ -2108,7 +2340,7 @@
       if (newPassword) {
         if (!isValidPassword(newPassword)) {
           saveBtn.disabled = false;
-          toast("New password needs 8+ characters with a letter, number, and symbol.");
+          toast("New password needs 8+ characters with uppercase, lowercase, a number, and a symbol.");
           return;
         }
         var pwResult = await supabaseClient.auth.updateUser({ password: newPassword });
