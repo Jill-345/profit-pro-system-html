@@ -29,8 +29,6 @@
     "recipe-form.html": ["Admin", "Super Admin"]
   };
 
-  var GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
-
   /* =======================================================================
      Users / auth storage helpers
      ======================================================================= */
@@ -337,54 +335,6 @@
   }
 
   /* =======================================================================
-     Google Sign-In (login + signup pages)
-     ======================================================================= */
-
-  function handleGoogleProfile(profile) {
-    // NOTE: this custom Google Identity Services flow never creates a real
-    // Supabase Auth session, so it can no longer pass your Row Level Security
-    // checks. Proper Google sign-in with Supabase uses its own built-in OAuth
-    // provider instead (supabaseClient.auth.signInWithOAuth) — ask to set that
-    // up next if you want a working Google button.
-    alert("Google sign-in needs to be reconnected to Supabase's own login system. Ask to set this up as the next step.");
-  }
-
-  function initGoogleSignIn() {
-    var googleBtn = document.querySelector(".btn-google");
-    if (!googleBtn) return;
-    var clientReady = typeof google !== "undefined" && google.accounts && google.accounts.oauth2;
-    var tokenClient = null;
-
-    if (clientReady) {
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: "openid email profile",
-        callback: function (tokenResponse) {
-          if (!tokenResponse || !tokenResponse.access_token) return;
-          fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-            headers: { Authorization: "Bearer " + tokenResponse.access_token }
-          })
-            .then(function (res) { return res.json(); })
-            .then(function (profile) { handleGoogleProfile(profile); })
-            .catch(function () { alert("Couldn't complete Google sign-in. Please try again."); });
-        }
-      });
-    }
-
-    googleBtn.addEventListener("click", function () {
-      if (GOOGLE_CLIENT_ID.indexOf("YOUR_GOOGLE_CLIENT_ID") === 0) {
-        alert("Google sign-in needs one more setup step: add a real Google OAuth Client ID in script.js (look for GOOGLE_CLIENT_ID near the top).");
-        return;
-      }
-      if (!clientReady || !tokenClient) {
-        alert("Google's sign-in library didn't load. Check your internet connection and try again.");
-        return;
-      }
-      tokenClient.requestAccessToken();
-    });
-  }
-
-  /* =======================================================================
      Forgot Password page
      ======================================================================= */
 
@@ -408,7 +358,7 @@
       submitBtn.textContent = "Sending\u2026";
 
       var basePath = window.location.pathname.replace(/[^/]*$/, "");
-      var redirectTo = window.location.origin + basePath + "index.html";
+      var redirectTo = window.location.origin + basePath + "reset-password.html";
 
       await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: redirectTo });
 
@@ -419,6 +369,165 @@
     });
   }
 
+    /* =======================================================================
+     Set New Password page (reset-password.html) — where the link from the
+     reset email actually lands. Supabase's client auto-detects the
+     access_token in the URL and fires a PASSWORD_RECOVERY auth event once
+     it's parsed the session from that link.
+     ======================================================================= */
+
+  function initResetPasswordForm() {
+    var form = document.getElementById("reset-password-form");
+    if (!form) return;
+
+    var alertEl = document.getElementById("reset-alert");
+    var headingEl = document.getElementById("reset-heading");
+    var subheadingEl = document.getElementById("reset-subheading");
+    var submitBtn = document.getElementById("reset-submit-btn");
+    var sessionReady = false;
+
+    function showInvalidLink() {
+      if (headingEl) headingEl.textContent = "Link Invalid or Expired";
+      if (subheadingEl) subheadingEl.textContent = "This reset link didn't work — it may have already been used, or it's expired. Request a new one from the login page.";
+      form.style.display = "none";
+    }
+
+    // Case 1: Supabase already finished parsing the link by the time this runs.
+    supabaseClient.auth.getSession().then(function (result) {
+      if (result.data && result.data.session) sessionReady = true;
+      else if (window.location.hash.indexOf("type=recovery") === -1) {
+        // No token in the URL at all and no session — this page was opened directly.
+        setTimeout(function () { if (!sessionReady) showInvalidLink(); }, 1500);
+      }
+    });
+
+    // Case 2: the PASSWORD_RECOVERY event fires once Supabase parses the link.
+    supabaseClient.auth.onAuthStateChange(function (event) {
+      if (event === "PASSWORD_RECOVERY") sessionReady = true;
+    });
+
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      hideAlert(alertEl);
+      clearAllFieldErrors(form);
+
+      var newPassword = document.getElementById("new-password").value;
+      var confirmPassword = document.getElementById("confirm-password").value;
+      var hasError = false;
+
+      if (!newPassword) {
+        setFieldError("new-password", "Password is required."); hasError = true;
+      } else if (!isValidPassword(newPassword)) {
+        setFieldError("new-password", "Use at least 8 characters, with an uppercase letter, a lowercase letter, a number, and a symbol."); hasError = true;
+      }
+      if (!confirmPassword) {
+        setFieldError("confirm-password", "Please confirm your new password."); hasError = true;
+      } else if (newPassword && confirmPassword !== newPassword) {
+        setFieldError("confirm-password", "Passwords don't match."); hasError = true;
+      }
+      if (hasError) return;
+
+      var sessionCheck = await supabaseClient.auth.getSession();
+      if (!sessionCheck.data || !sessionCheck.data.session) {
+        showAlert(alertEl, "error", "This link is invalid or has expired. Go back and request a new one.");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      var updateResult = await supabaseClient.auth.updateUser({ password: newPassword });
+
+      if (updateResult.error) {
+        submitBtn.disabled = false;
+        showAlert(alertEl, "error", updateResult.error.message || "Couldn't update your password. Try again.");
+        return;
+      }
+
+      showAlert(alertEl, "success", "Password updated! Redirecting you to log in…");
+      form.reset();
+      await supabaseClient.auth.signOut();
+      setTimeout(function () { window.location.href = "index.html"; }, 1500);
+    });
+  }
+
+      /* =======================================================================
+     Set New Password page (reset-password.html) — where the link from the
+     reset email actually lands. Supabase's client auto-detects the
+     access_token in the URL and fires a PASSWORD_RECOVERY auth event once
+     it's parsed the session from that link.
+     ======================================================================= */
+
+  function initResetPasswordForm() {
+    var form = document.getElementById("reset-password-form");
+    if (!form) return;
+
+    var alertEl = document.getElementById("reset-alert");
+    var headingEl = document.getElementById("reset-heading");
+    var subheadingEl = document.getElementById("reset-subheading");
+    var submitBtn = document.getElementById("reset-submit-btn");
+    var sessionReady = false;
+
+    function showInvalidLink() {
+      if (headingEl) headingEl.textContent = "Link Invalid or Expired";
+      if (subheadingEl) subheadingEl.textContent = "This reset link didn't work — it may have already been used, or it's expired. Request a new one from the login page.";
+      form.style.display = "none";
+    }
+
+    // Case 1: Supabase already finished parsing the link by the time this runs.
+    supabaseClient.auth.getSession().then(function (result) {
+      if (result.data && result.data.session) sessionReady = true;
+      else if (window.location.hash.indexOf("type=recovery") === -1) {
+        // No token in the URL at all and no session — this page was opened directly.
+        setTimeout(function () { if (!sessionReady) showInvalidLink(); }, 1500);
+      }
+    });
+
+    // Case 2: the PASSWORD_RECOVERY event fires once Supabase parses the link.
+    supabaseClient.auth.onAuthStateChange(function (event) {
+      if (event === "PASSWORD_RECOVERY") sessionReady = true;
+    });
+
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      hideAlert(alertEl);
+      clearAllFieldErrors(form);
+
+      var newPassword = document.getElementById("new-password").value;
+      var confirmPassword = document.getElementById("confirm-password").value;
+      var hasError = false;
+
+      if (!newPassword) {
+        setFieldError("new-password", "Password is required."); hasError = true;
+      } else if (!isValidPassword(newPassword)) {
+        setFieldError("new-password", "Use at least 8 characters, with an uppercase letter, a lowercase letter, a number, and a symbol."); hasError = true;
+      }
+      if (!confirmPassword) {
+        setFieldError("confirm-password", "Please confirm your new password."); hasError = true;
+      } else if (newPassword && confirmPassword !== newPassword) {
+        setFieldError("confirm-password", "Passwords don't match."); hasError = true;
+      }
+      if (hasError) return;
+
+      var sessionCheck = await supabaseClient.auth.getSession();
+      if (!sessionCheck.data || !sessionCheck.data.session) {
+        showAlert(alertEl, "error", "This link is invalid or has expired. Go back and request a new one.");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      var updateResult = await supabaseClient.auth.updateUser({ password: newPassword });
+
+      if (updateResult.error) {
+        submitBtn.disabled = false;
+        showAlert(alertEl, "error", updateResult.error.message || "Couldn't update your password. Try again.");
+        return;
+      }
+
+      showAlert(alertEl, "success", "Password updated! Redirecting you to log in…");
+      form.reset();
+      await supabaseClient.auth.signOut();
+      setTimeout(function () { window.location.href = "index.html"; }, 1500);
+    });
+  }
   /* =======================================================================
      App data layer — shared across every app page
      Business data (ingredients, recipes, bread inventory, sales, forecasts)
@@ -2664,7 +2773,7 @@
     initSignupForm();
     initLoginForm();
     initForgotPasswordForm();
-    initGoogleSignIn();
+    initResetPasswordForm();
 
     var chromeOk = await initAppChrome();
     if (chromeOk === false) return;
