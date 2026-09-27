@@ -1825,18 +1825,30 @@
       }
       ingredients.forEach(function (ing) {
         var isLow = ing.low_stock_threshold != null && ing.stock_qty <= ing.low_stock_threshold;
+        var showsConversion = ing.purchase_unit && ing.purchase_unit !== ing.unit && ing.units_per_purchase && ing.units_per_purchase !== 1;
+        var nameCell = ing.name + (isLow ? ' <span class="status-pill" style="background:#9C3B1E;">Low stock</span>' : "");
+        if (showsConversion) {
+          nameCell += '<br><span class="field-hint" style="margin:2px 0 0;">1 ' + ing.purchase_unit + ' = ' + Number(ing.units_per_purchase).toLocaleString() + ' ' + ing.unit + '</span>';
+        }
         var tr = document.createElement("tr");
         tr.innerHTML =
-          "<td>" + ing.name + (isLow ? ' <span class="status-pill" style="background:#9C3B1E;">Low stock</span>' : "") + "</td>" +
+          "<td>" + nameCell + "</td>" +
           "<td>" + (ing.category || "") + "</td>" +
           "<td>" + ing.unit + "</td>" +
           "<td>\u20B1" + ing.cost_per_unit.toFixed(3) + "</td>" +
           "<td>" + Number(ing.stock_qty).toLocaleString() + " " + ing.unit + "</td>" +
           "<td>" + (ing.low_stock_threshold != null ? ing.low_stock_threshold : "\u2014") + "</td>" +
           "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>" +
+          '<td><a href="#" class="row-action" data-restock="' + ing.id + '">Restock</a></td>' +
           '<td><a href="#" class="row-action" data-edit="' + ing.id + '">Edit</a></td>' +
           '<td><button type="button" class="btn-link-remove" data-delete="' + ing.id + '">Delete</button></td>';
         body.appendChild(tr);
+      });
+      body.querySelectorAll("[data-restock]").forEach(function (link) {
+        link.addEventListener("click", function (e) {
+          e.preventDefault();
+          toggleRestockRow(link.getAttribute("data-restock"));
+        });
       });
       body.querySelectorAll("[data-edit]").forEach(function (link) {
         link.addEventListener("click", function (e) {
@@ -1870,39 +1882,80 @@
       });
     }
 
-    function toggleEditRow(id) {
+    function toggleRestockRow(id) {
       var ing = ingredients.find(function (i) { return i.id === id; });
       if (!ing) return;
       var rows = body.querySelectorAll("tr");
       rows.forEach(function (tr) {
         if (tr.children[0] && tr.children[0].textContent.indexOf(ing.name) === 0) {
           tr.innerHTML =
-            '<td>' + ing.name + '</td>' +
-            '<td>' + (ing.category || "") + '</td>' +
-            '<td>' + ing.unit + '</td>' +
-            '<td><input type="number" step="0.001" id="edit-cost-' + ing.id + '" value="' + ing.cost_per_unit + '"></td>' +
-            '<td><input type="number" step="1" id="edit-stock-' + ing.id + '" value="' + ing.stock_qty + '"></td>' +
-            '<td><input type="number" step="1" id="edit-lowstock-' + ing.id + '" value="' + (ing.low_stock_threshold != null ? ing.low_stock_threshold : "") + '"></td>' +
-            '<td>' + new Date(ing.updated_at).toLocaleDateString() + '</td>' +
-            '<td><a href="#" class="row-action" data-save="' + ing.id + '">Save</a></td>' +
-            '<td></td>';
-          tr.querySelector("[data-save]").addEventListener("click", async function (e) {
-            e.preventDefault();
-            var newCost = parseFloat(document.getElementById("edit-cost-" + ing.id).value);
-            var newStock = parseFloat(document.getElementById("edit-stock-" + ing.id).value);
-            var newLowStock = document.getElementById("edit-lowstock-" + ing.id).value;
-            var fields = {};
-            if (!isNaN(newCost)) fields.cost_per_unit = newCost;
-            if (!isNaN(newStock)) fields.stock_qty = newStock;
-            fields.low_stock_threshold = newLowStock === "" ? null : parseFloat(newLowStock);
-
-            var result = await updateIngredient(ing.id, fields);
-            if (result.error) { toast("Couldn't save: " + result.error.message); return; }
-
-            Object.assign(ing, fields);
-            await logActivitySupa("Updated ingredient - " + ing.name);
+            '<td colspan="10">' +
+              '<div class="form-row" style="align-items:flex-end;margin:0;">' +
+                '<div class="field-group" style="margin-bottom:0;">' +
+                  '<label>Quantity purchased (' + (ing.purchase_unit || ing.unit) + ')</label>' +
+                  '<div class="field-control"><input type="number" id="restock-qty-' + ing.id + '" placeholder="e.g. 1" min="0" step="any"></div>' +
+                '</div>' +
+                '<div class="field-group" style="margin-bottom:0;">' +
+                  '<label>Total price paid</label>' +
+                  '<div class="field-control"><input type="number" id="restock-price-' + ing.id + '" placeholder="e.g. 1250" min="0" step="0.01"></div>' +
+                '</div>' +
+                '<div class="field-group" style="margin-bottom:0;">' +
+                  '<label>Recipe units per purchase unit</label>' +
+                  '<div class="field-control"><input type="number" id="restock-conversion-' + ing.id + '" value="' + (ing.units_per_purchase || 1) + '" min="0.0001" step="any"></div>' +
+                '</div>' +
+                '<div class="field-group" style="margin-bottom:0;flex:0 0 auto;">' +
+                  '<button type="button" class="btn-outline" id="restock-cancel-' + ing.id + '">Cancel</button>' +
+                '</div>' +
+                '<div class="field-group" style="margin-bottom:0;flex:0 0 auto;">' +
+                  '<button type="button" class="btn-dark" id="restock-save-' + ing.id + '">Add Stock</button>' +
+                '</div>' +
+              '</div>' +
+            '</td>';
+ 
+          document.getElementById("restock-cancel-" + ing.id).addEventListener("click", function () {
             renderIngredientTable();
-            toast(ing.name + " updated.");
+          });
+ 
+          document.getElementById("restock-save-" + ing.id).addEventListener("click", async function () {
+            var qty = parseFloat(document.getElementById("restock-qty-" + ing.id).value);
+            var price = parseFloat(document.getElementById("restock-price-" + ing.id).value);
+            var conversion = parseFloat(document.getElementById("restock-conversion-" + ing.id).value) || 1;
+ 
+            if (!qty || qty <= 0 || isNaN(price) || price < 0) {
+              toast("Enter a quantity purchased and a total price paid.");
+              return;
+            }
+            if (conversion <= 0) {
+              toast("Recipe units per purchase unit must be greater than 0.");
+              return;
+            }
+ 
+            var costPerPurchaseUnit = price / qty;
+            var newCostPerUnit = costPerPurchaseUnit / conversion;
+            var addedStock = qty * conversion;
+            var newStockQty = ing.stock_qty + addedStock;
+ 
+            var saveBtn = document.getElementById("restock-save-" + ing.id);
+            saveBtn.disabled = true;
+ 
+            var result = await updateIngredient(ing.id, {
+              cost_per_unit: newCostPerUnit,
+              stock_qty: newStockQty,
+              units_per_purchase: conversion
+            });
+ 
+            if (result.error) {
+              saveBtn.disabled = false;
+              toast("Couldn't restock: " + result.error.message);
+              return;
+            }
+ 
+            ing.cost_per_unit = newCostPerUnit;
+            ing.stock_qty = newStockQty;
+            ing.units_per_purchase = conversion;
+            await logActivitySupa("Restocked ingredient - " + ing.name + " (+" + qty + " " + (ing.purchase_unit || ing.unit) + " = +" + addedStock.toFixed(1) + " " + ing.unit + ")");
+            renderIngredientTable();
+            toast(ing.name + " restocked: +" + addedStock.toFixed(1) + " " + ing.unit + ".");
           });
         }
       });
@@ -1923,16 +1976,31 @@
       var qty = parseFloat(qtyInput.value);
       var price = parseFloat(priceInput.value);
       var unit = document.getElementById("ing-unit").value || "unit";
-      if (qty > 0 && price >= 0) {
-        costPreview.textContent = "\u20B1" + (price / qty).toFixed(3) + " / " + unit;
+      var purchaseUnitRaw = document.getElementById("ing-purchase-unit").value.trim();
+      var purchaseUnit = purchaseUnitRaw || unit;
+      var conversion = parseFloat(document.getElementById("ing-conversion").value) || 1;
+ 
+      var hintEl = document.getElementById("ing-conversion-hint");
+      hintEl.textContent = "Example: 1 " + purchaseUnit + " = " + conversion + " " + unit;
+ 
+      var purchaseNote = document.getElementById("ing-cost-preview-purchase");
+ 
+      if (qty > 0 && price >= 0 && conversion > 0) {
+        var costPerPurchaseUnit = price / qty;
+        var costPerRecipeUnit = costPerPurchaseUnit / conversion;
+        costPreview.textContent = "\u20B1" + costPerRecipeUnit.toFixed(4) + " / " + unit;
+        purchaseNote.textContent = purchaseUnit !== unit
+          ? "(\u20B1" + costPerPurchaseUnit.toFixed(2) + " per " + purchaseUnit + ")"
+          : "";
       } else {
         costPreview.textContent = "\u20B1 0 / " + unit;
+        purchaseNote.textContent = "";
       }
     }
-    [qtyInput, priceInput, document.getElementById("ing-unit")].forEach(function (el) {
-      el.addEventListener("input", updateCostPreview);
-      el.addEventListener("change", updateCostPreview);
-    });
+    [qtyInput, priceInput, document.getElementById("ing-unit"), document.getElementById("ing-purchase-unit"), document.getElementById("ing-conversion")].forEach(function (el) {
+        el.addEventListener("input", updateCostPreview);
+        el.addEventListener("change", updateCostPreview);
+      });
 
     document.getElementById("save-ingredient-btn").addEventListener("click", async function () {
       var name = document.getElementById("ing-name").value.trim();
@@ -1940,34 +2008,44 @@
       var unit = document.getElementById("ing-unit").value;
       var qty = parseFloat(qtyInput.value);
       var totalPrice = parseFloat(priceInput.value);
-      var startStock = parseFloat(document.getElementById("ing-start-stock").value) || qty || 0;
+      var purchaseUnit = document.getElementById("ing-purchase-unit").value.trim() || unit;
+      var conversion = parseFloat(document.getElementById("ing-conversion").value) || 1;
+      var startStockInput = document.getElementById("ing-start-stock").value;
+      var startStock = startStockInput !== "" ? parseFloat(startStockInput) : (qty * conversion || 0);
       var lowStockVal = document.getElementById("ing-low-stock").value;
-
+ 
       if (!name || !qty || qty <= 0 || isNaN(totalPrice)) {
         toast("Fill in ingredient name, quantity purchased, and total price paid.");
         return;
       }
-      var costPerUnit = totalPrice / qty;
-
+      if (!conversion || conversion <= 0) {
+        toast("Recipe units per purchase unit must be greater than 0.");
+        return;
+      }
+      var costPerPurchaseUnit = totalPrice / qty;
+      var costPerUnit = costPerPurchaseUnit / conversion; // cost per RECIPE unit — this is what recipes use
+ 
       var saveBtn = document.getElementById("save-ingredient-btn");
       saveBtn.disabled = true;
       var result = await insertIngredient({
         name: name, category: category || "Uncategorized", unit: unit,
         cost_per_unit: costPerUnit, baseline_cost_per_unit: costPerUnit,
         stock_qty: startStock, low_stock_threshold: lowStockVal === "" ? null : parseFloat(lowStockVal),
-        supplier: document.getElementById("ing-supplier").value.trim() || null
+        supplier: document.getElementById("ing-supplier").value.trim() || null,
+        purchase_unit: purchaseUnit, units_per_purchase: conversion
       });
       saveBtn.disabled = false;
-
+ 
       if (result.error) { toast("Couldn't save ingredient: " + result.error.message); return; }
-
+ 
       ingredients.push(result.data);
       await logActivitySupa("Added raw ingredient - " + name);
-
-      ["ing-name","ing-category","ing-qty-purchased","ing-total-price","ing-supplier","ing-start-stock","ing-low-stock"].forEach(function (id) {
+ 
+      ["ing-name","ing-category","ing-qty-purchased","ing-total-price","ing-supplier","ing-start-stock","ing-low-stock","ing-purchase-unit"].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.value = "";
       });
+      document.getElementById("ing-conversion").value = "1";
       updateCostPreview();
       renderIngredientTable();
       addForm.classList.remove("is-visible");

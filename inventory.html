@@ -115,7 +115,7 @@
     <div class="table-wrap">
       <table class="data-table">
         <thead>
-          <tr><th>Ingredient</th><th>Category</th><th>Unit</th><th>Cost/Unit</th><th>Stock Qty</th><th>Low Stock At</th><th>Last Updated</th><th></th><th></th></tr>
+          <tr><th>Ingredient</th><th>Category</th><th>Unit</th><th>Cost/Unit</th><th>Stock Qty</th><th>Low Stock At</th><th>Last Updated</th><th></th><th></th><th></th></tr>
         </thead>
         <tbody id="ingredient-stock-body"></tbody>
       </table>
@@ -128,7 +128,7 @@
       </button>
     </div>
 
-    <div class="inline-form" id="add-ingredient-form">
+        <div class="inline-form" id="add-ingredient-form">
       <h2 class="section-title" style="margin-top:0;">Recipe details</h2>
       <div class="form-row">
         <div class="field-group">
@@ -142,7 +142,7 @@
       </div>
       <div class="form-row">
         <div class="field-group">
-          <label for="ing-unit">Unit of measure</label>
+          <label for="ing-unit">Recipe unit (used in recipes &amp; stock)</label>
           <div class="field-control">
             <select id="ing-unit">
               <option value="g">g</option>
@@ -155,7 +155,7 @@
         </div>
         <div class="field-group">
           <label for="ing-qty-purchased">Quantity purchased</label>
-          <div class="field-control"><input type="number" id="ing-qty-purchased" placeholder="e.g. 25000" min="0"></div>
+          <div class="field-control"><input type="number" id="ing-qty-purchased" placeholder="e.g. 1" min="0"></div>
         </div>
         <div class="field-group">
           <label for="ing-total-price">Total price paid</label>
@@ -164,12 +164,28 @@
       </div>
       <div class="form-row">
         <div class="field-group">
+          <label for="ing-purchase-unit">Purchased as (optional)</label>
+          <div class="field-control">
+            <input type="text" id="ing-purchase-unit" placeholder="e.g. sack, box, case — leave blank if same as recipe unit">
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="ing-conversion">Recipe units per 1 purchase unit</label>
+          <div class="field-control">
+            <input type="number" id="ing-conversion" placeholder="e.g. 25000" min="0.0001" step="any" value="1">
+          </div>
+          <p class="field-hint" id="ing-conversion-hint">Example: 1 sack = 25,000 g</p>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field-group">
           <label for="ing-supplier">Supplier</label>
           <div class="field-control"><input type="text" id="ing-supplier" placeholder="e.g. Golden Grain Traders"></div>
         </div>
         <div class="info-box solid" style="flex:1;">
-          <p class="info-label">Cost per unit</p>
+          <p class="info-label">Cost per recipe unit</p>
           <p class="info-value accent" id="ing-cost-preview">₱0 / g</p>
+          <p class="field-hint" id="ing-cost-preview-purchase" style="margin-top:6px;"></p>
         </div>
       </div>
       <div class="form-row">
@@ -186,7 +202,6 @@
         <button class="btn-dark" id="save-ingredient-btn" type="button">Save ingredient</button>
       </div>
     </div>
-  </div>
 
 </main>
 
