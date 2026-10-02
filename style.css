@@ -6,7 +6,7 @@
             profile.html, record-sale.html, analytics.html
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Karla:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Caprasimo&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
 
 :root {
   /* Color tokens — warm bakery palette */
@@ -571,7 +571,7 @@ button {
   font-size: 0.74rem;
   font-weight: 700;
   color: var(--color-cinnamon-dark);
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.03em;
 }
 
@@ -963,7 +963,7 @@ button {
   font-size: 0.8rem;
   color: var(--color-mocha);
   margin: 0 0 8px;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.03em;
 }
 
@@ -1262,7 +1262,7 @@ button {
 .data-table th {
   background: var(--color-field);
   color: var(--color-mocha);
-  text-transform: uppercase;
+  text-transform: none;
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   font-weight: 700;
@@ -1597,3 +1597,232 @@ button {
 }
 
 /* Reduced motion respected: no non-essential motion is used on these pages. */
+
+/* ==========================================================================
+   Refresh — photo hero, ledger-style stats, flatter layout, new type.
+   Loaded last on purpose: it overrides the earlier rules above.
+   ========================================================================== */
+
+:root {
+  --font-brand:   'Caprasimo', Georgia, serif;
+  --font-display: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:    'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  --color-butter: #EDBF6B;
+  --color-bark:   #2B1A14;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+}
+
+h1, h2, h3, .page-heading, .section-title { font-weight: 800; letter-spacing: -0.01em; }
+
+/* Sign-in / sign-up headings and logo use the sign-painter face */
+.auth-heading { font-family: var(--font-brand); font-weight: 400; letter-spacing: 0; }
+.auth-brandmark span { font-family: var(--font-brand); font-weight: 400; }
+
+/* ---- Top bar: dark wood, cream text ---- */
+.app-header { background: var(--color-bark); border-bottom: 0; }
+.app-brandmark { color: var(--color-cream); }
+.app-brandmark svg { color: var(--color-butter); }
+.app-brandmark span { font-family: var(--font-brand); font-style: normal; font-weight: 400; font-size: 1.45rem; letter-spacing: 0.01em; }
+.app-nav { gap: 26px; }
+.app-nav a { color: rgba(253, 248, 240, 0.72); font-weight: 600; border-bottom-width: 3px; }
+.app-nav a:hover { color: var(--color-cream); }
+.app-nav a.active { color: var(--color-cream); border-bottom-color: var(--color-butter); }
+.avatar-btn { background: var(--color-butter); color: var(--color-bark); }
+.avatar-btn:hover { background: var(--color-cream); }
+
+/* ---- Dashboard hero: the bakery photo ---- */
+.hero-band {
+  position: relative;
+  min-height: 340px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 0 40px 92px;
+  background:
+    linear-gradient(to top right, rgba(34, 18, 12, 0.88) 0%, rgba(34, 18, 12, 0.58) 42%, rgba(34, 18, 12, 0.12) 100%),
+    url('bakery-photo.jpg') center 62% / cover no-repeat;
+  background-color: var(--color-bark);
+}
+.hero-inner { width: 100%; max-width: 1100px; margin: 0 auto; }
+.hero-band h1 {
+  font-family: var(--font-brand);
+  font-style: normal;
+  font-weight: 400;
+  font-size: clamp(2.3rem, 5vw, 3.6rem);
+  line-height: 1.05;
+  letter-spacing: 0;
+  color: #FFF6E6;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+  margin: 0;
+}
+.hero-date { margin: 10px 0 0; color: rgba(255, 246, 230, 0.88); font-size: 1rem; font-weight: 500; }
+
+/* ---- Stats: one ledger strip instead of four floating cards ---- */
+.stat-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0;
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  border-bottom-width: 3px;
+  border-radius: var(--radius-md);
+  margin-bottom: 40px;
+}
+.stat-strip { position: relative; margin-top: -58px; box-shadow: 0 8px 24px rgba(34, 18, 12, 0.16); }
+.stat-card { background: transparent; border: 0; border-radius: 0; padding: 20px 24px; display: flex; flex-direction: column-reverse; gap: 4px; }
+.stat-card + .stat-card { border-left: 1px solid var(--color-wheat-line); }
+.stat-card .stat-label { margin: 0; font-size: 0.86rem; letter-spacing: 0; color: var(--color-mocha); }
+.stat-card .stat-value { font-family: var(--font-display); font-size: 2rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+
+/* ---- Dashboard body: charts on the left, quick actions down the side ---- */
+.dash-layout { display: block; }
+.dash-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 44px; align-items: start; }
+.dash-main .panel, #staff-dashboard .panel {
+  background: transparent; border: 0; border-top: 3px solid var(--color-bark); border-radius: 0; padding: 14px 0 0;
+}
+.panel h3 { font-weight: 800; font-size: 1.12rem; }
+
+/* ---- Floating assistant: robot head, speech-bubble corner ---- */
+.ai-chat-fab { border-radius: 20px 20px 20px 5px; background: var(--color-bark); color: var(--color-butter); width: 60px; height: 60px; }
+.ai-chat-fab:hover { background: var(--color-crust); transform: translateY(-2px); }
+.ai-chat-header { background: var(--color-bark); }
+.ai-chat-header .ai-chat-avatar { background: var(--color-butter); color: var(--color-bark); border-radius: 10px; width: 34px; height: 34px; }
+.ai-chat-header-text .ai-chat-title { font-family: var(--font-display); font-weight: 800; }
+
+@media (max-width: 900px) {
+  .app-header { padding: 14px 20px; }
+  .hero-band { padding: 0 20px 84px; min-height: 280px; }
+}
+@media (max-width: 760px) {
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .stat-card + .stat-card { border-left: 0; }
+  .stat-card { border-bottom: 1px solid var(--color-wheat-line); }
+}
+@media (prefers-reduced-motion: reduce) { .ai-chat-fab { transition: none; } }
+
+
+/* ==========================================================================
+   Quick action tiles, photo backgrounds, phone layout
+   ========================================================================== */
+
+.quick-title { font-family: var(--font-display); font-size: 1.12rem; font-weight: 800; margin: 0 0 14px; }
+.action-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 44px; }
+.action-btn {
+  background: var(--color-white); border: 1px solid var(--color-wheat-line); border-bottom: 3px solid var(--color-wheat-line);
+  border-radius: var(--radius-md); padding: 14px 16px; gap: 14px; text-decoration: none;
+}
+.action-btn:hover { background: var(--color-white); border-color: var(--color-bark); text-decoration: none; }
+.action-btn .action-icon {
+  width: 46px; height: 46px; border-radius: 6px; background: var(--color-butter); color: var(--color-bark);
+  align-items: center; justify-content: center;
+}
+.action-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.action-text strong { font-size: 0.98rem; font-weight: 800; color: var(--color-crust); }
+.action-text small { font-size: 0.82rem; font-weight: 500; color: var(--color-mocha); }
+
+/* Inner pages: the bakery photos as a faded backdrop (landscape on wide screens, portrait on phones) */
+body.page-bg::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    linear-gradient(rgba(253, 248, 240, 0.88), rgba(253, 248, 240, 0.88)),
+    url('bg-bakery-shelves.jpg') center / cover no-repeat;
+}
+@media (max-width: 760px), (orientation: portrait) {
+  body.page-bg::before {
+    background:
+      linear-gradient(rgba(253, 248, 240, 0.88), rgba(253, 248, 240, 0.88)),
+      url('bg-pastry-case.jpg') center / cover no-repeat;
+  }
+}
+
+/* Mobile menu button (added by script.js) */
+.nav-toggle {
+  display: none; width: 40px; height: 40px; flex-shrink: 0; cursor: pointer;
+  align-items: center; justify-content: center;
+  background: transparent; color: var(--color-cream); border: 1px solid rgba(253, 248, 240, 0.35); border-radius: 6px;
+}
+.nav-toggle:hover { background: rgba(253, 248, 240, 0.1); }
+
+img, svg, video { max-width: 100%; }
+
+@media (max-width: 980px) {
+  .app-header { flex-wrap: wrap; gap: 10px 10px; padding: 10px 16px; }
+  .app-brandmark { order: 1; margin-right: auto; }
+  .avatar-btn { order: 2; }
+  .nav-toggle { display: flex; order: 3; }
+  .app-header nav { order: 5; flex-basis: 100%; display: none; }
+  .app-header.nav-open nav { display: block; padding-bottom: 6px; }
+  .app-nav { display: flex; flex-direction: column; gap: 0; flex-wrap: nowrap; }
+  .app-nav li + li a { border-top: 1px solid rgba(253, 248, 240, 0.12); }
+  .app-nav a { display: block; padding: 14px 4px; border-bottom: 0; font-size: 1rem; }
+  .app-nav a.active { color: var(--color-butter); border-bottom: 0; }
+  .avatar-menu { top: 62px; right: 16px; }
+  .dash-main { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+  .page-heading-row { flex-wrap: wrap; }
+}
+
+@media (max-width: 760px) {
+  .app-main, .app-main.narrow { padding: 22px 16px 60px; }
+  .hero-band { min-height: 250px; padding: 0 18px 78px; }
+  .stat-grid { grid-template-columns: 1fr 1fr; margin-bottom: 32px; }
+  .stat-strip { margin-top: -50px; }
+  .stat-card { padding: 14px 16px; border-bottom: 1px solid var(--color-wheat-line); }
+  .stat-card + .stat-card { border-left: 0; }
+  .stat-card:nth-child(even) { border-left: 1px solid var(--color-wheat-line); }
+  .stat-card .stat-value { font-size: 1.5rem; }
+  .action-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 36px; }
+  .action-btn { flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; }
+  .page-heading { font-size: 1.5rem; }
+}
+
+@media (max-width: 420px) {
+  .action-grid { grid-template-columns: 1fr; }
+  .action-btn { flex-direction: row; align-items: center; }
+  .stat-card .stat-label { font-size: 0.8rem; }
+}
+
+
+/* ---- Phone/tablet fixes found while testing ---- */
+
+/* The login/sign-up split layout kept its 50% max-width after stacking, leaving a half-width column */
+@media (max-width: 860px) {
+  .auth-photo { max-width: 100%; flex: 0 0 200px; min-height: 200px; }
+  .auth-form-panel { max-width: 100%; flex: 1 1 auto; padding: 36px 20px 48px; }
+  .auth-brandmark { top: 24px; left: 24px; }
+  .auth-brandmark span { white-space: nowrap; }
+  /* inline styles on a few form rows (align-items, flex) fight the stacked layout */
+  .form-row { align-items: stretch !important; }
+  .form-row > .field-group { flex: 0 0 auto !important; width: 100%; }
+}
+
+/* A heading right after a table needs breathing room (:first-of-type was zeroing it) */
+.table-wrap + .section-title { margin-top: 36px; }
+
+@media (max-width: 760px) {
+  /* chart bars shrink to the screen instead of scrolling sideways */
+  .bar-row, .bar-axis { min-width: 0; }
+  .donut-wrap { flex-wrap: wrap; gap: 16px; }
+  .donut-legend { min-width: 0; flex-basis: 100%; }
+
+  /* tables keep their columns and scroll inside their box; fade/shadow shows there is more */
+  .table-wrap {
+    -webkit-overflow-scrolling: touch;
+    background:
+      linear-gradient(to right, #fff 30%, rgba(255, 255, 255, 0)),
+      linear-gradient(to right, rgba(255, 255, 255, 0), #fff 70%) 100% 0,
+      radial-gradient(farthest-side at 0 50%, rgba(62, 39, 35, 0.22), rgba(62, 39, 35, 0)),
+      radial-gradient(farthest-side at 100% 50%, rgba(62, 39, 35, 0.22), rgba(62, 39, 35, 0)) 100% 0;
+    background-color: #fff;
+    background-repeat: no-repeat;
+    background-size: 40px 100%, 40px 100%, 12px 100%, 12px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  .data-table { min-width: 500px; }
+  .data-table th, .data-table td { padding: 10px 12px; }
+}
+
+/* Tablets: two-by-two tiles instead of three plus one left over */
+@media (min-width: 761px) and (max-width: 980px) {
+  .action-grid { grid-template-columns: repeat(2, 1fr); }
+}

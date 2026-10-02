@@ -4,12 +4,32 @@
    (dashboard/recipes/recipe-form/recipe-view/inventory/admin/
     invite-account/edit-account/profile/record-sale/analytics)
 
-   NOTE: There is no real server here. This uses the browser's own storage
-   (localStorage/sessionStorage) to stand in for a backend, so the whole
-   sign up -> log in -> dashboard -> recipes/inventory/admin/analytics flow
-   genuinely works end to end in the browser. To go live for real customers,
-   these storage calls should be replaced with calls to a real server/API.
+   NOTE: Data is stored in Supabase (see supabase-schema.sql). This file
+   expects a Supabase client named `supabaseClient`. If your page already
+   creates one (e.g. in supabase-config.js loaded BEFORE this file), that
+   one is used. Otherwise fill in the two values in the bootstrap below.
    ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Supabase bootstrap — only creates the client if one doesn't already exist.
+   Load the Supabase library BEFORE this file:
+   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+   -------------------------------------------------------------------------- */
+(function () {
+  if (typeof supabaseClient !== "undefined") return; // already created elsewhere
+  var url = "YOUR_SUPABASE_URL";           // e.g. https://xxxx.supabase.co
+  var key = "YOUR_SUPABASE_ANON_KEY";      // the public anon key
+  if (url.indexOf("YOUR_") === 0 || key.indexOf("YOUR_") === 0) {
+    console.error("script.js: supabaseClient is not defined. Fill in the URL and anon key at the top of script.js, or load your config file before it.");
+    return;
+  }
+  if (!window.supabase || typeof window.supabase.createClient !== "function") {
+    console.error("script.js: the Supabase library must be loaded before script.js.");
+    return;
+  }
+  window.supabaseClient = window.supabase.createClient(url, key);
+})();
+
 
 (function () {
   "use strict";
@@ -225,38 +245,35 @@
       var submitBtn = form.querySelector("button[type='submit']");
       submitBtn.disabled = true;
 
-      var signUpResult = await supabaseClient.auth.signUp({ email: email, password: password });
+      var fullName = (firstName + " " + lastName).trim();
+
+      // The profile row, role, invite status and activity log entry are now
+      // created server-side by the handle_new_user trigger (see fix-signup.sql),
+      // because with email confirmation ON there is no session after signUp,
+      // so the browser can't insert into profiles itself.
+      var signUpResult = await supabaseClient.auth.signUp({
+        email: email,
+        password: password,
+        options: {
+          data: { full_name: fullName },
+          emailRedirectTo: window.location.origin + window.location.pathname.replace(/[^\/]*$/, "") + "index.html"
+        }
+      });
       if (signUpResult.error) {
         submitBtn.disabled = false;
         showAlert(alertEl, "error", signUpResult.error.message || "Couldn't create that account.");
         return;
       }
 
-      var newUserId = signUpResult.data.user && signUpResult.data.user.id;
-      var role = invitedRecord ? invitedRecord.role : "Super Admin";
-      var fullName = (firstName + " " + lastName).trim();
-
-      var profileResult = await supabaseClient.from("profiles").insert({
-        id: newUserId, full_name: fullName, email: email.toLowerCase(), role: role, status: "Active"
-      });
-      if (profileResult.error) {
-        submitBtn.disabled = false;
-        showAlert(alertEl, "error", "Account created, but the profile couldn't be saved: " + profileResult.error.message);
-        return;
-      }
-
-      if (invitedRecord) {
-        await supabaseClient.from("invites").update({ status: "Accepted" }).eq("id", invitedRecord.id);
-      }
-      await supabaseClient.from("activity_log").insert({
-        user_id: newUserId,
-        action: invitedRecord ? "Accepted invite (" + role + ")" : "Created the Super Admin account"
-      });
-
-      showAlert(alertEl, "success", "Account created! Redirecting you to log in\u2026");
       form.reset();
-      await supabaseClient.auth.signOut();
-      setTimeout(function () { window.location.href = "index.html"; }, 1200);
+      if (signUpResult.data.session) {
+        // Email confirmation is OFF: user is already signed in.
+        await supabaseClient.auth.signOut();
+        showAlert(alertEl, "success", "Account created! Redirecting you to log in\u2026");
+      } else {
+        showAlert(alertEl, "success", "Account created! Check your email and click the confirmation link, then log in.");
+      }
+      setTimeout(function () { window.location.href = "index.html"; }, 3000);
     });
   }
 
@@ -449,85 +466,7 @@
     });
   }
 
-      /* =======================================================================
-     Set New Password page (reset-password.html) — where the link from the
-     reset email actually lands. Supabase's client auto-detects the
-     access_token in the URL and fires a PASSWORD_RECOVERY auth event once
-     it's parsed the session from that link.
-     ======================================================================= */
 
-  function initResetPasswordForm() {
-    var form = document.getElementById("reset-password-form");
-    if (!form) return;
-
-    var alertEl = document.getElementById("reset-alert");
-    var headingEl = document.getElementById("reset-heading");
-    var subheadingEl = document.getElementById("reset-subheading");
-    var submitBtn = document.getElementById("reset-submit-btn");
-    var sessionReady = false;
-
-    function showInvalidLink() {
-      if (headingEl) headingEl.textContent = "Link Invalid or Expired";
-      if (subheadingEl) subheadingEl.textContent = "This reset link didn't work — it may have already been used, or it's expired. Request a new one from the login page.";
-      form.style.display = "none";
-    }
-
-    // Case 1: Supabase already finished parsing the link by the time this runs.
-    supabaseClient.auth.getSession().then(function (result) {
-      if (result.data && result.data.session) sessionReady = true;
-      else if (window.location.hash.indexOf("type=recovery") === -1) {
-        // No token in the URL at all and no session — this page was opened directly.
-        setTimeout(function () { if (!sessionReady) showInvalidLink(); }, 1500);
-      }
-    });
-
-    // Case 2: the PASSWORD_RECOVERY event fires once Supabase parses the link.
-    supabaseClient.auth.onAuthStateChange(function (event) {
-      if (event === "PASSWORD_RECOVERY") sessionReady = true;
-    });
-
-    form.addEventListener("submit", async function (event) {
-      event.preventDefault();
-      hideAlert(alertEl);
-      clearAllFieldErrors(form);
-
-      var newPassword = document.getElementById("new-password").value;
-      var confirmPassword = document.getElementById("confirm-password").value;
-      var hasError = false;
-
-      if (!newPassword) {
-        setFieldError("new-password", "Password is required."); hasError = true;
-      } else if (!isValidPassword(newPassword)) {
-        setFieldError("new-password", "Use at least 8 characters, with an uppercase letter, a lowercase letter, a number, and a symbol."); hasError = true;
-      }
-      if (!confirmPassword) {
-        setFieldError("confirm-password", "Please confirm your new password."); hasError = true;
-      } else if (newPassword && confirmPassword !== newPassword) {
-        setFieldError("confirm-password", "Passwords don't match."); hasError = true;
-      }
-      if (hasError) return;
-
-      var sessionCheck = await supabaseClient.auth.getSession();
-      if (!sessionCheck.data || !sessionCheck.data.session) {
-        showAlert(alertEl, "error", "This link is invalid or has expired. Go back and request a new one.");
-        return;
-      }
-
-      submitBtn.disabled = true;
-      var updateResult = await supabaseClient.auth.updateUser({ password: newPassword });
-
-      if (updateResult.error) {
-        submitBtn.disabled = false;
-        showAlert(alertEl, "error", updateResult.error.message || "Couldn't update your password. Try again.");
-        return;
-      }
-
-      showAlert(alertEl, "success", "Password updated! Redirecting you to log in…");
-      form.reset();
-      await supabaseClient.auth.signOut();
-      setTimeout(function () { window.location.href = "index.html"; }, 1500);
-    });
-  }
   /* =======================================================================
      App data layer — shared across every app page
      Business data (ingredients, recipes, bread inventory, sales, forecasts)
@@ -552,6 +491,12 @@
     el.classList.add("is-visible");
     clearTimeout(toast._t);
     toast._t = setTimeout(function () { el.classList.remove("is-visible"); }, 2400);
+  }
+
+  function escAttr(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   var FLASH_KEY = "drrBakeryFlash";
@@ -1820,7 +1765,7 @@
     function renderIngredientTable() {
       body.innerHTML = "";
       if (!ingredients.length) {
-        body.innerHTML = '<tr><td colspan="8" class="empty-note">No raw ingredients yet.</td></tr>';
+        body.innerHTML = '<tr><td colspan="10" class="empty-note">No raw ingredients yet.</td></tr>';
         return;
       }
       ingredients.forEach(function (ing) {
@@ -1831,6 +1776,7 @@
           nameCell += '<br><span class="field-hint" style="margin:2px 0 0;">1 ' + ing.purchase_unit + ' = ' + Number(ing.units_per_purchase).toLocaleString() + ' ' + ing.unit + '</span>';
         }
         var tr = document.createElement("tr");
+        tr.setAttribute("data-id", ing.id);
         tr.innerHTML =
           "<td>" + nameCell + "</td>" +
           "<td>" + (ing.category || "") + "</td>" +
@@ -1887,7 +1833,7 @@
       if (!ing) return;
       var rows = body.querySelectorAll("tr");
       rows.forEach(function (tr) {
-        if (tr.children[0] && tr.children[0].textContent.indexOf(ing.name) === 0) {
+        if (tr.getAttribute("data-id") === String(ing.id)) {
           tr.innerHTML =
             '<td colspan="10">' +
               '<div class="form-row" style="align-items:flex-end;margin:0;">' +
@@ -1958,6 +1904,90 @@
             toast(ing.name + " restocked: +" + addedStock.toFixed(1) + " " + ing.unit + ".");
           });
         }
+      });
+    }
+
+    function toggleEditRow(id) {
+      var ing = ingredients.find(function (i) { return String(i.id) === String(id); });
+      if (!ing) return;
+      var rows = body.querySelectorAll("tr");
+      rows.forEach(function (tr) {
+        if (tr.getAttribute("data-id") !== String(ing.id)) return;
+
+        function field(label, inputId, type, value, extra) {
+          return '<div class="field-group" style="margin-bottom:0;">' +
+            '<label>' + label + '</label>' +
+            '<div class="field-control"><input type="' + type + '" id="' + inputId + '-' + ing.id + '" value="' + escAttr(value) + '"' + (extra || "") + '></div>' +
+          '</div>';
+        }
+
+        tr.innerHTML =
+          '<td colspan="10">' +
+            '<div class="form-row" style="align-items:flex-end;margin:0;flex-wrap:wrap;">' +
+              field("Name", "edit-name", "text", ing.name) +
+              field("Category", "edit-category", "text", ing.category || "") +
+              field("Supplier", "edit-supplier", "text", ing.supplier || "") +
+              field("Cost per " + ing.unit + " (\u20B1)", "edit-cost", "number", ing.cost_per_unit, ' min="0" step="any"') +
+              field("Stock (" + ing.unit + ")", "edit-stock", "number", ing.stock_qty, ' min="0" step="any"') +
+              field("Low-stock alert", "edit-low", "number", ing.low_stock_threshold != null ? ing.low_stock_threshold : "", ' min="0" step="any"') +
+              '<div class="field-group" style="margin-bottom:0;flex:0 0 auto;">' +
+                '<button type="button" class="btn-outline" id="edit-cancel-' + ing.id + '">Cancel</button>' +
+              '</div>' +
+              '<div class="field-group" style="margin-bottom:0;flex:0 0 auto;">' +
+                '<button type="button" class="btn-dark" id="edit-save-' + ing.id + '">Save</button>' +
+              '</div>' +
+            '</div>' +
+          '</td>';
+
+        document.getElementById("edit-cancel-" + ing.id).addEventListener("click", function () {
+          renderIngredientTable();
+        });
+
+        document.getElementById("edit-save-" + ing.id).addEventListener("click", async function () {
+          var name = document.getElementById("edit-name-" + ing.id).value.trim();
+          var category = document.getElementById("edit-category-" + ing.id).value.trim();
+          var supplier = document.getElementById("edit-supplier-" + ing.id).value.trim();
+          var cost = parseFloat(document.getElementById("edit-cost-" + ing.id).value);
+          var stock = parseFloat(document.getElementById("edit-stock-" + ing.id).value);
+          var lowRaw = document.getElementById("edit-low-" + ing.id).value;
+          var low = lowRaw === "" ? null : parseFloat(lowRaw);
+
+          if (!name) { toast("Ingredient name is required."); return; }
+          if (isNaN(cost) || cost < 0) { toast("Enter a valid cost per unit."); return; }
+          if (isNaN(stock) || stock < 0) { toast("Enter a valid stock quantity."); return; }
+          if (low !== null && (isNaN(low) || low < 0)) { toast("Enter a valid low-stock alert level."); return; }
+
+          var saveBtn = document.getElementById("edit-save-" + ing.id);
+          saveBtn.disabled = true;
+
+          var fields = {
+            name: name,
+            category: category || "Uncategorized",
+            supplier: supplier || null,
+            cost_per_unit: cost,
+            stock_qty: stock,
+            low_stock_threshold: low
+          };
+          var result = await updateIngredient(ing.id, fields);
+
+          if (result.error) {
+            saveBtn.disabled = false;
+            toast("Couldn't save changes: " + result.error.message);
+            return;
+          }
+
+          ing.name = fields.name;
+          ing.category = fields.category;
+          ing.supplier = fields.supplier;
+          ing.cost_per_unit = fields.cost_per_unit;
+          ing.stock_qty = fields.stock_qty;
+          ing.low_stock_threshold = fields.low_stock_threshold;
+          ing.updated_at = new Date().toISOString();
+
+          await logActivitySupa("Edited raw ingredient - " + ing.name);
+          renderIngredientTable();
+          toast(ing.name + " updated.");
+        });
       });
     }
 
