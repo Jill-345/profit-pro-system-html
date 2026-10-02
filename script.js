@@ -286,7 +286,15 @@
     if (!form) return;
     var alertEl = document.getElementById("login-alert");
     var emailInput = document.getElementById("email");
-    var rememberInput = document.getElementById("remember");
+        var rememberInput = document.getElementById("remember");
+
+    // Only offer "Sign Up" while there is no account yet (first-time setup)
+    var signupPrompt = document.getElementById("signup-prompt");
+    if (signupPrompt) {
+      supabaseClient.rpc("profiles_count").then(function (res) {
+        if (!res.error && res.data === 0) signupPrompt.style.display = "";
+      });
+    }
 
     var remembered = localStorage.getItem(REMEMBER_KEY);
     if (remembered && emailInput) {
@@ -781,6 +789,24 @@
 
     filterNavForRole(session.role);
 
+    var headerEl = document.querySelector(".app-header");
+    var navEl = headerEl && headerEl.querySelector("nav");
+    if (headerEl && navEl && !document.getElementById("nav-toggle")) {
+      var toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.id = "nav-toggle";
+      toggleBtn.className = "nav-toggle";
+      toggleBtn.setAttribute("aria-label", "Open menu");
+      toggleBtn.setAttribute("aria-expanded", "false");
+      toggleBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      avatarBtn.insertAdjacentElement("afterend", toggleBtn);
+      toggleBtn.addEventListener("click", function () {
+        var open = headerEl.classList.toggle("nav-open");
+        toggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
+        toggleBtn.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+      });
+    }
+
     var menu = document.createElement("div");
     menu.className = "avatar-menu";
     menu.id = "avatar-menu";
@@ -1021,11 +1047,7 @@
     fab.className = "ai-chat-fab";
     fab.setAttribute("aria-label", "Open bakery assistant chat");
     fab.innerHTML =
-      '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-
-      '<path d="M12 2.5c.5 3.2 1.1 5.3 2.3 6.5 1.2 1.2 3.3 1.8 6.5 2.3-3.2.5-5.3 1.1-6.5 2.3-1.2 1.2-1.8 3.3-2.3 6.5-.5-3.2-1.1-5.3-2.3-6.5-1.2-1.2-3.3-1.8-6.5-2.3 3.2-.5 5.3-1.1 6.5-2.3 1.2-1.2 1.8-3.3 2.3-6.5Z" fill="currentColor"/>' +
-      '<path d="M19 2.8c.2 1.2.5 2 1 2.5.5.5 1.3.8 2.5 1-1.2.2-2 .5-2.5 1-.5.5-.8 1.3-1 2.5-.2-1.2-.5-2-1-2.5-.5-.5-1.3-.8-2.5-1 1.2-.2 2-.5 2.5-1 .5-.5.8-1.3 1-2.5Z" fill="currentColor" opacity="0.75"/>' +
-      '</svg><span class="ai-chat-badge"></span>';
+      '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 6.5V4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="3" r="1.3" fill="currentColor"/><rect x="4" y="6.5" width="16" height="12.5" rx="3.5" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="12" r="1.7" fill="currentColor"/><circle cx="15" cy="12" r="1.7" fill="currentColor"/><path d="M9.5 15.9h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M2 11v4M22 11v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span class="ai-chat-badge"></span>';
     document.body.appendChild(fab);
 
     var panel = document.createElement("div");
@@ -1033,7 +1055,7 @@
     panel.className = "ai-chat-panel";
     panel.innerHTML =
       '<div class="ai-chat-header">' +
-        '<div class="ai-chat-avatar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.5c.5 3.2 1.1 5.3 2.3 6.5 1.2 1.2 3.3 1.8 6.5 2.3-3.2.5-5.3 1.1-6.5 2.3-1.2 1.2-1.8 3.3-2.3 6.5-.5-3.2-1.1-5.3-2.3-6.5-1.2-1.2-3.3-1.8-6.5-2.3 3.2-.5 5.3-1.1 6.5-2.3 1.2-1.2 1.8-3.3 2.3-6.5Z" fill="currentColor"/></svg></div>' +
+        '<div class="ai-chat-avatar"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 6.5V4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="3" r="1.3" fill="currentColor"/><rect x="4" y="6.5" width="16" height="12.5" rx="3.5" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="12" r="1.7" fill="currentColor"/><circle cx="15" cy="12" r="1.7" fill="currentColor"/><path d="M9.5 15.9h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M2 11v4M22 11v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>' +
         '<div class="ai-chat-header-text">' +
           '<p class="ai-chat-title">Bakery Assistant</p>' +
           '<p class="ai-chat-subtitle"><span class="dot"></span>Reads your live data</p>' +

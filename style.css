@@ -1826,3 +1826,135 @@ img, svg, video { max-width: 100%; }
 @media (min-width: 761px) and (max-width: 980px) {
   .action-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ==========================================================================
+   Dashboard - editorial layout
+   Photo hero, then a flat ledger band (no overlap), then two columns:
+   charts on the left, photo + quick actions on the right.
+   Everything above this line is unchanged.
+   ========================================================================== */
+
+/* ---- Hero: sits on its own, nothing overlaps it ---- */
+.hero-band {
+  min-height: 300px;
+  padding: 0 40px 44px;
+  background:
+    linear-gradient(100deg, rgba(34, 18, 12, 0.84) 0%, rgba(34, 18, 12, 0.46) 48%, rgba(34, 18, 12, 0.06) 100%),
+    url('bakery-photo.jpg') center 58% / cover no-repeat;
+  background-color: var(--color-bark);
+}
+.hero-band h1 { font-size: clamp(2.2rem, 4.6vw, 3.3rem); }
+.hero-date { margin-top: 12px; font-size: 0.98rem; letter-spacing: 0.02em; }
+
+/* ---- Ledger band: four figures divided by hairlines ---- */
+.stat-band { background: var(--color-bark); border-bottom: 3px solid var(--color-butter); }
+.stat-band-inner { max-width: 1180px; margin: 0 auto; padding: 0 40px; }
+.stat-list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 1px;
+  background: rgba(253, 248, 240, 0.16);
+}
+.stat-item {
+  background: var(--color-bark);
+  padding: 26px 28px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 6px;
+}
+.stat-item:first-child { padding-left: 0; }
+.stat-item .stat-label { margin: 0; font-size: 0.88rem; letter-spacing: 0; color: rgba(253, 248, 240, 0.68); }
+.stat-item .stat-value {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 2.15rem;
+  font-weight: 700;
+  line-height: 1.05;
+  color: #FFF6E6;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Body: charts | photo and actions ---- */
+.app-main.dash-body { padding: 52px 40px 80px; }
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 72px; align-items: start; }
+.dash-charts { display: flex; flex-direction: column; gap: 52px; }
+.dash-charts .panel,
+#staff-dashboard .dash-body .panel {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--color-bark);
+  border-radius: 0;
+  padding: 18px 0 0;
+}
+
+.dash-photo { margin: 8px 8px 46px; }
+.dash-photo img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  object-position: 50% 30%;
+  border-radius: 2px;
+  outline: 1px solid rgba(43, 26, 20, 0.35);
+  outline-offset: 8px;
+}
+.dash-photo figcaption { margin-top: 22px; font-size: 0.86rem; color: var(--color-mocha); }
+
+.side-heading {
+  margin: 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-bark);
+  font-family: var(--font-display);
+  font-size: 1.12rem;
+  font-weight: 800;
+}
+.action-list { display: flex; flex-direction: column; margin-top: 8px; }
+.action-list .action-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 2px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-wheat-line);
+  border-radius: 0;
+  text-decoration: none;
+  color: var(--color-crust);
+}
+.action-list .action-btn:hover { background: transparent; border-color: var(--color-bark); text-decoration: none; }
+.action-list .action-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.action-list .action-text strong { font-size: 1rem; font-weight: 700; color: var(--color-crust); }
+.action-list .action-text small { font-size: 0.84rem; font-weight: 500; color: var(--color-mocha); }
+.action-chev { flex-shrink: 0; color: var(--color-mocha); transition: transform 0.15s ease, color 0.15s ease; }
+.action-list .action-btn:hover .action-chev { transform: translateX(4px); color: var(--color-cinnamon-dark); }
+
+/* ---- Tablet ---- */
+@media (max-width: 980px) {
+  .hero-band { min-height: 260px; padding: 0 24px 36px; }
+  .stat-band-inner { padding: 0 24px; }
+  .app-main.dash-body { padding: 40px 24px 64px; }
+  .dash-grid { grid-template-columns: minmax(0, 1fr); gap: 52px; }
+  .dash-side { order: -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 44px; align-items: start; }
+  .dash-photo { margin: 8px 8px 0; }
+  .dash-photo img { aspect-ratio: 1 / 1; }
+}
+
+/* ---- Phone ---- */
+@media (max-width: 640px) {
+  .hero-band { min-height: 230px; padding: 0 20px 28px; }
+  .stat-band-inner { padding: 0 20px; }
+  .stat-list { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+  .stat-item { padding: 18px 16px; }
+  .stat-item:first-child { padding-left: 16px; }
+  .stat-item:nth-child(odd) { padding-left: 0; }
+  .stat-item .stat-value { font-size: 1.65rem; }
+  .app-main.dash-body { padding: 32px 20px 56px; }
+  .dash-side { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .dash-photo { order: 2; }
+  .dash-photo img { aspect-ratio: 16 / 10; }
+}
+
+@media (prefers-reduced-motion: reduce) { .action-chev { transition: none; } }

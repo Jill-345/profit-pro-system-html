@@ -12,7 +12,7 @@
 
   <div class="auth-photo">
     <div class="auth-brandmark">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d="M5.5 19.5h13a1.6 1.6 0 0 0 1.6-1.6v-5.4c1.1-.7 1.8-1.8 1.8-3C21.9 7 18.2 4.8 12 4.8S2.1 7 2.1 9.5c0 1.2.7 2.3 1.8 3v5.4a1.6 1.6 0 0 0 1.6 1.6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
       <path d="M8 9.4l1.7 3M11.6 8.8l1.7 3M15.2 9.4l1.7 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
     </svg>
@@ -33,7 +33,7 @@
         <div class="field-group">
           <label for="email">Email Address</label>
           <div class="field-control">
-            <input type="email" id="email" name="email" placeholder="Placeholder">
+            <input type="email" id="email" name="email">
           </div>
           <p class="field-error" id="email-error"></p>
         </div>
@@ -41,7 +41,7 @@
         <div class="field-group">
           <label for="password">Password</label>
           <div class="field-control">
-            <input type="password" id="password" name="password" placeholder="Placeholder" data-has-toggle="true">
+            <input type="password" id="password" name="password" data-has-toggle="true">
             <button type="button" class="password-toggle" aria-label="Show password" data-toggle-target="password">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" stroke="currentColor" stroke-width="1.6"/>
@@ -66,10 +66,11 @@
 
       </form>
 
-      <hr class="auth-divider">
+      <div id="signup-prompt" style="display:none;">
+  <hr class="auth-divider">
 
-      <p class="auth-footer-link">No account yet? <a href="signup.html">Sign Up</a></p>
-
+  <p class="auth-footer-link">No account yet? <a href="signup.html">Sign Up</a></p>
+</div>
     </div>
   </div>
 

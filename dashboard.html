@@ -32,107 +32,126 @@
 
 <section class="hero-band">
   <div class="hero-inner">
-    <h1>Welcome to Bakery!</h1>
+    <h1>Welcome to DRR Bakery!</h1>
     <p class="hero-date" id="hero-date"></p>
   </div>
 </section>
 
-<main class="app-main">
-
 <div id="admin-dashboard-sections">
-  <div class="stat-grid stat-strip">
-    <div class="stat-card">
-      <p class="stat-label">Bread Recipes</p>
-      <p class="stat-value" id="stat-recipes">0</p>
-    </div>
-    <div class="stat-card">
-      <p class="stat-label">Average Food Cost</p>
-      <p class="stat-value" id="stat-foodcost">0%</p>
-    </div>
-    <div class="stat-card">
-      <p class="stat-label">Today's Expected Profit</p>
-      <p class="stat-value" id="stat-profit">₱ 0</p>
-    </div>
-    <div class="stat-card">
-      <p class="stat-label">Ingredient price alerts</p>
-      <p class="stat-value" id="stat-alerts">0</p>
-    </div>
-  </div>
 
-  <h2 class="quick-title">Quick actions</h2>
-  <div class="action-grid">
-    <a class="action-btn" href="recipe-form.html">
-      <span class="action-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span>
-      <span class="action-text"><strong>New bread recipe</strong><small>Cost out a new loaf</small></span>
-    </a>
-    <a class="action-btn" href="inventory.html?add=1">
-      <span class="action-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9h12l-1.2 9.2a2 2 0 0 1-2 1.8H9.2a2 2 0 0 1-2-1.8L6 9Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M8.5 9c0-2.5 1.6-4 3.5-4s3.5 1.5 3.5 4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg></span>
-      <span class="action-text"><strong>Add raw ingredient</strong><small>Flour, sugar, butter…</small></span>
-    </a>
-    <a class="action-btn" href="record-sale.html">
-      <span class="action-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 19h16M4 19V9M9 19V5M14 19v-8M19 19V3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
-      <span class="action-text"><strong>View today's sale</strong><small>See what sold so far</small></span>
-    </a>
-    <a class="action-btn" href="admin.html">
-      <span class="action-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="2"/><path d="M3.5 20c0-3 2.5-5.2 5.5-5.2S14.5 17 14.5 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17.5" cy="8.5" r="2.4" stroke="currentColor" stroke-width="2"/><path d="M15.8 14.6c2.6.3 4.5 2.3 4.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
-      <span class="action-text"><strong>Manage accounts</strong><small>Staff and invites</small></span>
-    </a>
-  </div>
-
-  <div class="dash-layout">
-  <div class="dash-main">
-
-    <div class="panel">
-      <h3>Monthly Sales</h3>
-      <div class="legend-toggle">
-        <span id="toggle-current"><i class="dot current"></i>Current Year</span>
-        <span id="toggle-past"><i class="dot past"></i>Past Year</span>
-      </div>
-      <div class="bar-chart-scroll">
-        <div id="bar-chart-body"></div>
-        <div class="bar-axis">
-          <div></div>
-          <div class="axis-track" id="bar-axis-labels"></div>
+  <div class="stat-band">
+    <div class="stat-band-inner">
+      <div class="stat-list">
+        <div class="stat-item">
+          <p class="stat-label">Bread recipes</p>
+          <p class="stat-value" id="stat-recipes">0</p>
+        </div>
+        <div class="stat-item">
+          <p class="stat-label">Average food cost</p>
+          <p class="stat-value" id="stat-foodcost">0%</p>
+        </div>
+        <div class="stat-item">
+          <p class="stat-label">Today's expected profit</p>
+          <p class="stat-value" id="stat-profit">₱ 0</p>
+        </div>
+        <div class="stat-item">
+          <p class="stat-label">Ingredient price alerts</p>
+          <p class="stat-value" id="stat-alerts">0</p>
         </div>
       </div>
     </div>
-
-    <div class="panel">
-      <h3>Top 5 Best Bread</h3>
-      <div class="donut-wrap">
-        <svg id="donut-svg" width="150" height="150" viewBox="0 0 150 150"></svg>
-        <ul class="donut-legend" id="donut-legend"></ul>
-      </div>
-    </div>
-
   </div>
 
+  <div class="app-main dash-body">
+    <div class="dash-grid">
+
+      <div class="dash-charts">
+        <div class="panel">
+          <h3>Monthly Sales</h3>
+          <div class="legend-toggle">
+            <span id="toggle-current"><i class="dot current"></i>Current Year</span>
+            <span id="toggle-past"><i class="dot past"></i>Past Year</span>
+          </div>
+          <div class="bar-chart-scroll">
+            <div id="bar-chart-body"></div>
+            <div class="bar-axis">
+              <div></div>
+              <div class="axis-track" id="bar-axis-labels"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Top 5 Best Bread</h3>
+          <div class="donut-wrap">
+            <svg id="donut-svg" width="150" height="150" viewBox="0 0 150 150"></svg>
+            <ul class="donut-legend" id="donut-legend"></ul>
+          </div>
+        </div>
+      </div>
+
+      <aside class="dash-side">
+        <figure class="dash-photo">
+          <img src="bakery-donuts.jpg" alt="Sugar-dusted bread on trays in the bakery display case">
+          <figcaption>From the display case</figcaption>
+        </figure>
+
+        <div class="dash-actions">
+          <h2 class="side-heading">Quick actions</h2>
+          <nav class="action-list" aria-label="Quick actions">
+        <a class="action-btn" href="recipe-form.html">
+          <span class="action-text"><strong>New bread recipe</strong><small>Cost out a new loaf</small></span>
+          <svg class="action-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="action-btn" href="inventory.html?add=1">
+          <span class="action-text"><strong>Add raw ingredient</strong><small>Flour, sugar, butter…</small></span>
+          <svg class="action-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="action-btn" href="record-sale.html">
+          <span class="action-text"><strong>View today's sale</strong><small>See what sold so far</small></span>
+          <svg class="action-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="action-btn" href="admin.html">
+          <span class="action-text"><strong>Manage accounts</strong><small>Staff and invites</small></span>
+          <svg class="action-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+          </nav>
+        </div>
+      </aside>
+
+    </div>
   </div>
 </div>
 
 <div id="staff-dashboard" style="display:none;">
-  <div class="stat-grid stat-strip">
-    <div class="stat-card">
-      <p class="stat-label">My Shift Sales (Today)</p>
-      <p class="stat-value" id="staff-stat-sales">₱ 0</p>
-    </div>
-    <div class="stat-card">
-      <p class="stat-label">Items Sold Today</p>
-      <p class="stat-value" id="staff-stat-items">0</p>
-    </div>
-    <div class="stat-card">
-      <p class="stat-label">Low Stock Alerts</p>
-      <p class="stat-value" id="staff-stat-lowstock">0</p>
+
+  <div class="stat-band">
+    <div class="stat-band-inner">
+      <div class="stat-list">
+        <div class="stat-item">
+          <p class="stat-label">My shift sales (today)</p>
+          <p class="stat-value" id="staff-stat-sales">₱ 0</p>
+        </div>
+        <div class="stat-item">
+          <p class="stat-label">Items sold today</p>
+          <p class="stat-value" id="staff-stat-items">0</p>
+        </div>
+        <div class="stat-item">
+          <p class="stat-label">Low stock alerts</p>
+          <p class="stat-value" id="staff-stat-lowstock">0</p>
+        </div>
+      </div>
     </div>
   </div>
 
-  <h2 class="section-title" style="margin-top:0;">Sales You've Logged Today</h2>
-  <div class="panel">
-    <ul class="donut-legend" id="staff-recent-sales"></ul>
+  <div class="app-main dash-body">
+    <div class="panel">
+      <h3>Sales You've Logged Today</h3>
+      <ul class="donut-legend" id="staff-recent-sales"></ul>
+    </div>
   </div>
+
 </div>
-
-</main>
 
 <div class="toast" id="app-toast"></div>
 
