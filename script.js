@@ -10,6 +10,16 @@
    one is used. Otherwise fill in the two values in the bootstrap below.
    ========================================================================== */
 
+/* Load the brand fonts without blocking the first paint (the old CSS @import
+   made the browser show a blank page until Google Fonts answered). */
+(function () {
+  if (document.getElementById("drr-fonts")) return;
+  var l = document.createElement("link");
+  l.id = "drr-fonts"; l.rel = "stylesheet";
+  l.href = "https://fonts.googleapis.com/css2?family=Caprasimo&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap";
+  document.head.appendChild(l);
+})();
+
 /* --------------------------------------------------------------------------
    Supabase bootstrap — only creates the client if one doesn't already exist.
    Load the Supabase library BEFORE this file:
@@ -495,7 +505,15 @@
   }
 
   /* ---- toast (shared across app pages) ---- */
+  var pageIsUnloading = false;
+  window.addEventListener("pagehide", function () { pageIsUnloading = true; });
+  window.addEventListener("beforeunload", function () { pageIsUnloading = true; });
+  window.addEventListener("pageshow", function () { pageIsUnloading = false; });
+  // Requests cancelled by a refresh are expected - don't surface them as errors.
+  window.addEventListener("unhandledrejection", function (e) { if (pageIsUnloading) e.preventDefault(); });
+
   function toast(msg) {
+    if (pageIsUnloading) return;
     var el = document.getElementById("app-toast");
     if (!el) return;
     el.textContent = msg;
@@ -739,27 +757,90 @@
     });
   }
 
+  // Header navigation guard: stops rapid / repeated clicks from re-triggering
+  // navigation (which caused reloads and flicker). Clicking the page you are
+  // already on does nothing; once a navigation has started, further clicks
+  // on any nav link are ignored.
+  function initNavClickGuard() {
+    var navigating = false;
+    var links = document.querySelectorAll(".app-nav a");
+    links.forEach(function (a) {
+      a.addEventListener("click", function (e) {
+        var href = a.getAttribute("href");
+        var plainClick = !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1);
+        if (!plainClick) return; // let "open in new tab" work normally
+        if (navigating || href === currentPageFile()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
+        navigating = true;
+        links.forEach(function (l) { l.classList.remove("nav-pending"); });
+        a.classList.add("nav-pending");
+      });
+    });
+    // If the page is restored from the back/forward cache, allow clicking again.
+    window.addEventListener("pageshow", function (e) { if (e.persisted) navigating = false; });
+  }
+
+  // Reading the Supabase session can briefly come back empty (or throw) when a
+  // page is refreshed many times in a row, because the previous page load may
+  // still be holding the auth lock. Retry a few times before treating the user
+  // as logged out, so quick refreshes never kick someone to the login page.
+  async function getSessionResilient() {
+    var attempts = 4;
+    for (var i = 0; i < attempts; i++) {
+      try {
+        var res = await supabaseClient.auth.getSession();
+        if (res && res.data && res.data.session) return res.data.session;
+      } catch (e) { /* retry */ }
+      if (i < attempts - 1) await new Promise(function (r) { setTimeout(r, 120 * (i + 1)); });
+    }
+    return null;
+  }
+
   async function initAppChrome() {
     var avatarBtn = document.getElementById("avatar-btn");
     if (!avatarBtn) return;
 
     // Check the REAL Supabase session (persists across tabs/refreshes),
     // and refresh our lightweight sessionStorage mirror from it.
-    var sessionResult = await supabaseClient.auth.getSession();
-    var supaSession = sessionResult.data && sessionResult.data.session;
+    var supaSession = await getSessionResilient();
     if (!supaSession) {
       sessionStorage.removeItem(SESSION_KEY);
       window.location.href = "index.html";
       return false;
     }
 
-    var profileResult = await supabaseClient.from("profiles").select("*").eq("id", supaSession.user.id).maybeSingle();
-    var profile = profileResult.data;
-    if (!profile || profile.status !== "Active") {
-      await supabaseClient.auth.signOut();
-      sessionStorage.removeItem(SESSION_KEY);
-      window.location.href = "index.html";
-      return false;
+    // Fast path: if this tab already knows who is logged in, render immediately
+    // from that and double-check the profile in the background. This removes one
+    // network round-trip from every page load / refresh.
+    var cached = null;
+    try { cached = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null"); } catch (e) { cached = null; }
+    var profilePromise = supabaseClient.from("profiles").select("*").eq("id", supaSession.user.id).maybeSingle();
+    var profile;
+    if (cached && cached.id === supaSession.user.id && cached.role && (cached.fullName || cached.firstName)) {
+      profile = { full_name: cached.fullName || cached.firstName, email: cached.email, role: cached.role, status: "Active" };
+      profilePromise.then(async function (r) {
+        if (pageIsUnloading || !r || r.error) return;       // network hiccup: keep going
+        var p = r.data;
+        if (!p || p.status !== "Active") {
+          await supabaseClient.auth.signOut();
+          sessionStorage.removeItem(SESSION_KEY);
+          window.location.href = "index.html";
+        } else if (p.role !== cached.role || p.full_name !== profile.full_name) {
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: supaSession.user.id, firstName: p.full_name.split(" ")[0] || p.full_name, fullName: p.full_name, email: p.email, role: p.role }));
+          window.location.reload();
+        }
+      }).catch(function () {});
+    } else {
+      profile = (await profilePromise).data;
+      if (!profile || profile.status !== "Active") {
+        await supabaseClient.auth.signOut();
+        sessionStorage.removeItem(SESSION_KEY);
+        window.location.href = "index.html";
+        return false;
+      }
     }
 
     var firstName = profile.full_name.split(" ")[0] || profile.full_name;
@@ -791,6 +872,7 @@
     }
 
     filterNavForRole(session.role);
+    initNavClickGuard();
 
     var headerEl = document.querySelector(".app-header");
     var navEl = headerEl && headerEl.querySelector("nav");
@@ -1785,9 +1867,13 @@
     if (!body) return;
 
     var role = getCurrentRole();
-    if (role === "Staff") {
-      var rawTabBtn = document.querySelector('[data-tab="tab-raw-ingredients"]');
-      if (rawTabBtn) rawTabBtn.style.display = "none";
+    var isStaff = role === "Staff";
+    if (isStaff) {
+      // Staff can see what's in stock, but not costs, and can't restock/edit/delete.
+      var addIngBtn = document.getElementById("show-add-ingredient");
+      if (addIngBtn) addIngBtn.style.display = "none";
+      var headRow = body.closest("table").querySelector("thead tr");
+      if (headRow) headRow.innerHTML = "<th>Ingredient</th><th>Category</th><th>Unit</th><th>Stock Qty</th><th>Low Stock At</th><th>Last Updated</th>";
     }
 
     var ingredients = await fetchIngredients();
@@ -1797,7 +1883,7 @@
     function renderIngredientTable() {
       body.innerHTML = "";
       if (!ingredients.length) {
-        body.innerHTML = '<tr><td colspan="10" class="empty-note">No raw ingredients yet.</td></tr>';
+        body.innerHTML = '<tr><td colspan="' + (isStaff ? 6 : 10) + '" class="empty-note">No raw ingredients yet.</td></tr>';
         return;
       }
       ingredients.forEach(function (ing) {
@@ -1809,11 +1895,22 @@
         }
         var tr = document.createElement("tr");
         tr.setAttribute("data-id", ing.id);
+        if (isStaff) {
+          tr.innerHTML =
+            "<td>" + nameCell + "</td>" +
+            "<td>" + (ing.category || "") + "</td>" +
+            "<td>" + ing.unit + "</td>" +
+            "<td>" + Number(ing.stock_qty).toLocaleString() + " " + ing.unit + "</td>" +
+            "<td>" + (ing.low_stock_threshold != null ? ing.low_stock_threshold : "\u2014") + "</td>" +
+            "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>";
+          body.appendChild(tr);
+          return;
+        }
         tr.innerHTML =
           "<td>" + nameCell + "</td>" +
           "<td>" + (ing.category || "") + "</td>" +
           "<td>" + ing.unit + "</td>" +
-          "<td>\u20B1" + ing.cost_per_unit.toFixed(3) + "</td>" +
+          "<td>\u20B1" + ing.cost_per_unit.toFixed(2) + "</td>" +
           "<td>" + Number(ing.stock_qty).toLocaleString() + " " + ing.unit + "</td>" +
           "<td>" + (ing.low_stock_threshold != null ? ing.low_stock_threshold : "\u2014") + "</td>" +
           "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>" +
@@ -2748,119 +2845,262 @@
      include that glyph — using it directly would render as a broken box.
      ======================================================================= */
 
+  // Draws the bakery logo (same icon as the site header) to a PNG for the PDF.
+  function loadPdfLogo() {
+    return new Promise(function (resolve) {
+      try {
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 24 24" fill="none">' +
+          '<path d="M5.5 19.5h13a1.6 1.6 0 0 0 1.6-1.6v-5.4c1.1-.7 1.8-1.8 1.8-3C21.9 7 18.2 4.8 12 4.8S2.1 7 2.1 9.5c0 1.2.7 2.3 1.8 3v5.4a1.6 1.6 0 0 0 1.6 1.6Z" stroke="#EDBF6B" stroke-width="1.7" stroke-linejoin="round"/>' +
+          '<path d="M8 9.4l1.7 3M11.6 8.8l1.7 3M15.2 9.4l1.7 3" stroke="#EDBF6B" stroke-width="1.7" stroke-linecap="round"/></svg>';
+        var img = new Image();
+        img.onload = function () {
+          try {
+            var c = document.createElement("canvas"); c.width = 96; c.height = 96;
+            c.getContext("2d").drawImage(img, 0, 0, 96, 96);
+            resolve(c.toDataURL("image/png"));
+          } catch (e) { resolve(null); }
+        };
+        img.onerror = function () { resolve(null); };
+        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        setTimeout(function () { resolve(null); }, 1500);
+      } catch (e) { resolve(null); }
+    });
+  }
+
   async function exportReportToPdf(rangeKey, sales, recipes) {
     var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
     if (!jsPDFCtor) { toast("PDF library didn't load. Check your internet connection and try again."); return; }
 
     var doc = new jsPDFCtor({ unit: "pt", format: "a4" });
-    var pageWidth = doc.internal.pageSize.getWidth();
-    var margin = 40;
-    var y = margin;
+    var F = { brand: "times", text: "helvetica" };
+    var logo = null;
+    var W = doc.internal.pageSize.getWidth();
+    var H = doc.internal.pageSize.getHeight();
+    var M = 54, CW = W - M * 2;
 
-    // ---- Header ----
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
-    doc.setTextColor(62, 39, 35);
-    doc.text("DRR Bakery", margin, y);
-    y += 22;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.setTextColor(139, 115, 85);
-    doc.text("Sales & Profitability Report", margin, y);
-    y += 26;
+    // Palette taken straight from style.css
+    var CREAM = [253, 248, 240], CRUST = [62, 39, 35], CINNAMON = [193, 102, 47], WHEAT_LINE = [220, 203, 174],
+        MOCHA = [139, 115, 85], FIELD = [246, 239, 226], BUTTER = [237, 191, 107], BARK = [43, 26, 20],
+        GOOD = [62, 107, 46], BAD = [156, 59, 30];
+    var BODY_TOP = 80, BODY_BOTTOM = 62;
+
+    function money(n) { return "PHP " + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    function setC(c) { doc.setTextColor(c[0], c[1], c[2]); }
+    function paintPage() { doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]); doc.rect(0, 0, W, H, "F"); }
+
+    function ensure(y, need) { if (y + need > H - BODY_BOTTOM) { doc.addPage(); return BODY_TOP; } return y; }
+    function sectionTitle(text, y) {
+      y = ensure(y, 90);
+      doc.setFont("times", "bold"); doc.setFontSize(13); setC(CRUST);
+      doc.text(text, M, y);
+      doc.setDrawColor(WHEAT_LINE[0], WHEAT_LINE[1], WHEAT_LINE[2]); doc.setLineWidth(0.8); doc.line(M, y + 8, W - M, y + 8);
+      doc.setDrawColor(CINNAMON[0], CINNAMON[1], CINNAMON[2]); doc.setLineWidth(2.2); doc.line(M, y + 8, M + 40, y + 8);
+      return y + 26;
+    }
+    var tableBase = {
+      theme: "plain",
+      headStyles: { fillColor: BARK, textColor: CREAM, fontStyle: "bold", fontSize: 8.5, cellPadding: { top: 8, bottom: 8, left: 8, right: 8 } },
+      styles: { font: F.text, fontSize: 9, cellPadding: { top: 7, bottom: 7, left: 8, right: 8 }, textColor: CRUST, lineColor: WHEAT_LINE, lineWidth: { bottom: 0.5 } },
+      alternateRowStyles: { fillColor: FIELD },
+      margin: { left: M, right: M, top: BODY_TOP, bottom: BODY_BOTTOM }
+    };
+    function alignHead(d, right, center) {
+      if (d.section === "head") {
+        if (right.indexOf(d.column.index) !== -1) d.cell.styles.halign = "right";
+        if (center.indexOf(d.column.index) !== -1) d.cell.styles.halign = "center";
+      }
+    }
 
     var rangeLabels = { today: "Today", "7days": "Last 7 Days", "30days": "Last 30 Days", all: "All Time" };
+    var rangeLabel = rangeLabels[rangeKey] || "Today";
     var session = getSession();
-    doc.setFontSize(9);
-    doc.setTextColor(90, 90, 90);
-    doc.text("Report period: " + (rangeLabels[rangeKey] || "Today"), margin, y); y += 14;
-    doc.text("Generated: " + new Date().toLocaleString(), margin, y); y += 14;
-    doc.text("Generated by: " + (session ? session.firstName + " (" + session.role + ")" : "Unknown"), margin, y); y += 20;
+    var now = new Date();
+    var generatedAt = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) + ", " + now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    var preparedBy = session ? session.firstName + " (" + session.role + ")" : "Unknown";
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    var refNo = "DRR-SPR-" + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + "-" + pad(now.getHours()) + pad(now.getMinutes());
 
-    doc.setDrawColor(220, 203, 174);
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 20;
+    // ---- Header band: same dark wood bar + butter accent as the app header ----
+    doc.setFillColor(BARK[0], BARK[1], BARK[2]); doc.rect(0, 0, W, 88, "F");
+    doc.setFillColor(CINNAMON[0], CINNAMON[1], CINNAMON[2]); doc.rect(0, 88, W, 3, "F");
+    var textX = M;
+    if (logo) { doc.addImage(logo, "PNG", M, 30, 30, 30); textX = M + 40; }
+    doc.setFont("times", "bold"); doc.setFontSize(26); setC(CREAM);
+    doc.text("DRR BAKERY", textX, 52);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); setC(BUTTER);
+    doc.text("FOOD COST & MENU PRICE SYSTEM", textX, 67, { charSpace: 1.4 });
+    doc.setFont(F.text, "normal"); doc.setFontSize(8); doc.setTextColor(CREAM[0], CREAM[1], CREAM[2]);
+    doc.text("Document Ref.", W - M, 38, { align: "right" });
+    doc.setFont(F.text, "bold"); doc.setFontSize(10); setC(BUTTER);
+    doc.text(refNo, W - M, 52, { align: "right" });
+    doc.setFont(F.text, "normal"); doc.setFontSize(7.5); doc.setTextColor(CREAM[0], CREAM[1], CREAM[2]);
+    doc.text("CONFIDENTIAL — FOR INTERNAL USE", W - M, 67, { align: "right", charSpace: 0.6 });
 
-    // ---- Summary ----
+    // ---- Title ----
+    var y = 142;
+    doc.setFont("times", "bold"); doc.setFontSize(24); setC(CRUST);
+    doc.text("Sales & Profitability Report", M, y);
+    y += 24;
+
+    // ---- Report details ----
+    doc.setDrawColor(WHEAT_LINE[0], WHEAT_LINE[1], WHEAT_LINE[2]); doc.setLineWidth(0.7);
+    doc.rect(M, y, CW, 56);
+    var cells = [["REPORT PERIOD", rangeLabel], ["DATE ISSUED", generatedAt], ["PREPARED BY", preparedBy]];
+    var colW = CW / 3;
+    cells.forEach(function (c, i) {
+      var x = M + 14 + i * colW;
+      if (i > 0) { doc.setDrawColor(WHEAT_LINE[0], WHEAT_LINE[1], WHEAT_LINE[2]); doc.line(M + i * colW, y + 10, M + i * colW, y + 46); }
+      doc.setFont(F.text, "bold"); doc.setFontSize(7); setC(MOCHA);
+      doc.text(c[0], x, y + 21, { charSpace: 0.9 });
+      doc.setFont(F.text, "normal"); doc.setFontSize(9.5); setC(CRUST);
+      doc.text(doc.splitTextToSize(c[1], colW - 26), x, y + 37);
+    });
+    y += 56 + 34;
+
+    // ---- Figures ----
     var totalSales = sales.reduce(function (s, x) { return s + x.total_amount; }, 0);
     var totalCost = sales.reduce(function (s, x) { return s + x.food_cost; }, 0);
     var gross = totalSales - totalCost;
+    var grossPct = totalSales > 0 ? (gross / totalSales) * 100 : 0;
+    var units = sales.reduce(function (s, x) { return s + x.quantity; }, 0);
 
-    doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(62, 39, 35);
-    doc.text("Summary", margin, y); y += 8;
-
-    doc.autoTable({
-      startY: y,
-      margin: { left: margin, right: margin },
-      head: [["Total Sales", "Total Production Cost", "Gross Profit", "Net Profit"]],
-      body: [[
-        "PHP " + totalSales.toFixed(2),
-        "PHP " + totalCost.toFixed(2),
-        "PHP " + gross.toFixed(2),
-        "PHP " + gross.toFixed(2)
-      ]],
-      theme: "grid",
-      headStyles: { fillColor: [246, 239, 226], textColor: [62, 39, 35], fontStyle: "bold" },
-      styles: { fontSize: 10, cellPadding: 6 }
-    });
-    y = doc.lastAutoTable.finalY + 24;
-
-    // ---- Best / lowest selling ----
-    var byItem = {};
+    var byItem = {}, detail = {};
     sales.forEach(function (s) {
       var n = s.recipes ? s.recipes.name : "Unknown";
       byItem[n] = (byItem[n] || 0) + s.quantity;
+      var d = detail[n] || (detail[n] = { qty: 0, rev: 0, cost: 0 });
+      d.qty += s.quantity; d.rev += s.total_amount; d.cost += s.food_cost;
     });
     var names = Object.keys(byItem).sort(function (a, b) { return byItem[b] - byItem[a]; });
     var bestText = names.length ? names[0] + " — " + byItem[names[0]] + " pcs sold" : "No sales in this period";
     var lowText = names.length ? names[names.length - 1] + " — " + byItem[names[names.length - 1]] + " pcs sold" : "No sales in this period";
 
-    doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(62, 39, 35);
-    doc.text("Best Selling / Lowest Selling", margin, y); y += 16;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(60, 60, 60);
-    doc.text("Best Selling: " + bestText, margin, y); y += 14;
-    doc.text("Lowest Selling: " + lowText, margin, y); y += 22;
+    // ---- 1. Executive summary ----
+    y = sectionTitle("1.  Executive Summary", y);
+    var summaryText = sales.length
+      ? "For the reporting period (" + rangeLabel.toLowerCase() + "), DRR Bakery recorded " + sales.length + " sales transaction" + (sales.length === 1 ? "" : "s") +
+        " totalling " + units.toLocaleString("en-US") + " pieces sold. Total sales amounted to " + money(totalSales) + " against a production cost of " + money(totalCost) +
+        ", resulting in a gross profit of " + money(gross) + " (" + grossPct.toFixed(1) + "% gross margin)."
+      : "No sales were recorded for the reporting period (" + rangeLabel.toLowerCase() + "). Figures below reflect zero activity.";
+    doc.setFont("times", "normal"); doc.setFontSize(10.5); setC(CRUST);
+    var lines = doc.splitTextToSize(summaryText, CW);
+    doc.text(lines, M, y, { lineHeightFactor: 1.45 });
+    y += lines.length * 15 + 18;
 
-    // ---- Profitability ranking ----
+    // ---- 2. Financial summary ----
+    y = sectionTitle("2.  Financial Summary", y);
+    doc.autoTable(Object.assign({}, tableBase, {
+      startY: y,
+      head: [["Total Sales", "Total Production Cost", "Gross Profit", "Net Profit"]],
+      body: [[money(totalSales), money(totalCost), money(gross), money(gross)]],
+      alternateRowStyles: {},
+      styles: Object.assign({}, tableBase.styles, { fontSize: 11, fontStyle: "bold", halign: "center", cellPadding: { top: 13, bottom: 13, left: 8, right: 8 }, textColor: CRUST, fillColor: [255, 255, 255] }),
+      didParseCell: function (d) { if (d.section === "head") d.cell.styles.halign = "center"; }
+    }));
+    y = doc.lastAutoTable.finalY + 30;
+
+    // ---- 3. Sales performance ----
+    y = sectionTitle("3.  Sales Performance", y);
+    doc.autoTable(Object.assign({}, tableBase, {
+      startY: y,
+      body: [["Best Selling", bestText], ["Lowest Selling", lowText]],
+      alternateRowStyles: {},
+      styles: Object.assign({}, tableBase.styles, { fontSize: 10 }),
+      columnStyles: { 0: { fontStyle: "bold", cellWidth: 130, textColor: CRUST, fillColor: FIELD } }
+    }));
+    y = doc.lastAutoTable.finalY + 14;
+
+    if (names.length) {
+      doc.autoTable(Object.assign({}, tableBase, {
+        startY: y,
+        head: [["Item", "Units Sold", "Revenue", "Production Cost", "Gross Profit"]],
+        body: names.map(function (n) {
+          var d = detail[n];
+          return [n, d.qty.toLocaleString("en-US"), money(d.rev), money(d.cost), money(d.rev - d.cost)];
+        }),
+        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+        didParseCell: function (d) { alignHead(d, [1, 2, 3, 4], []); }
+      }));
+      y = doc.lastAutoTable.finalY;
+    }
+    y += 30;
+
+    // ---- 4. Profitability ranking ----
     var rows = recipes.map(function (r) {
       var profit = (r.selling_price || 0) - r.cost_per_piece;
-      var margin = r.selling_price ? (profit / r.selling_price) * 100 : 0;
-      return { name: r.name, cost: r.cost_per_piece, price: r.selling_price || 0, profit: profit, margin: margin };
+      var mg = r.selling_price ? (profit / r.selling_price) * 100 : 0;
+      return { name: r.name, cost: r.cost_per_piece, price: r.selling_price || 0, profit: profit, margin: mg };
     }).sort(function (a, b) { return b.margin - a.margin; });
 
-    doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(62, 39, 35);
-    doc.text("Bread Profitability Ranking", margin, y); y += 8;
-
-    doc.autoTable({
+    y = sectionTitle("4.  Bread Profitability Ranking", y);
+    doc.autoTable(Object.assign({}, tableBase, {
       startY: y,
-      margin: { left: margin, right: margin },
-      head: [["#", "Bread Name", "Unit Cost", "Selling Price", "Profit", "Margin", "Status"]],
+      head: [["No.", "Bread Name", "Unit Cost", "Selling Price", "Profit", "Margin", "Status"]],
       body: rows.map(function (r, i) {
-        return [
-          i + 1, r.name,
-          "PHP " + r.cost.toFixed(2), "PHP " + r.price.toFixed(2), "PHP " + r.profit.toFixed(2),
-          r.margin.toFixed(1) + "%", r.margin >= 50 ? "High Profit" : "Low Profit"
-        ];
+        return [i + 1, r.name, money(r.cost), money(r.price), money(r.profit), r.margin.toFixed(1) + "%", r.margin >= 50 ? "High Profit" : "Low Profit"];
       }),
-      theme: "grid",
-      headStyles: { fillColor: [246, 239, 226], textColor: [62, 39, 35], fontStyle: "bold" },
-      styles: { fontSize: 9, cellPadding: 5 }
+      columnStyles: { 0: { cellWidth: 32, halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "center", fontStyle: "bold" } },
+      didParseCell: function (d) {
+        alignHead(d, [2, 3, 4, 5], [0, 6]);
+        if (d.section === "body" && d.column.index === 6) d.cell.styles.textColor = d.cell.raw === "High Profit" ? GOOD : BAD;
+      }
+    }));
+    y = doc.lastAutoTable.finalY;
+    if (!rows.length) {
+      doc.setFont(F.text, "normal"); doc.setFontSize(10); setC(MOCHA);
+      doc.text("No recipes available.", M, y + 18); y += 24;
+    }
+    y += 30;
+
+    // ---- 5. Notes ----
+    y = sectionTitle("5.  Notes", y);
+    var notes = [
+      "All amounts are expressed in Philippine Pesos (PHP).",
+      "Net profit is presented equal to gross profit; no operating expenses are deducted in this report.",
+      "A bread item is classified as “High Profit” when its margin is 50% or higher, otherwise “Low Profit”."
+    ];
+    doc.setFont(F.text, "normal"); doc.setFontSize(9); setC(MOCHA);
+    notes.forEach(function (n, i) {
+      var l = doc.splitTextToSize((i + 1) + ".  " + n, CW - 14);
+      y = ensure(y, l.length * 12 + 4);
+      doc.text(l, M + 8, y, { lineHeightFactor: 1.35 });
+      y += l.length * 12.5 + 3;
+    });
+    y += 30;
+
+    // ---- Sign-off ----
+    y = ensure(y, 70);
+    var sigW = (CW - 40) / 2;
+    [["Prepared by", preparedBy], ["Reviewed / Approved by", ""]].forEach(function (sg, i) {
+      var x = M + i * (sigW + 40);
+      doc.setDrawColor(CRUST[0], CRUST[1], CRUST[2]); doc.setLineWidth(0.6); doc.line(x, y + 30, x + sigW, y + 30);
+      doc.setFont(F.text, "bold"); doc.setFontSize(7.5); setC(MOCHA);
+      doc.text(sg[0].toUpperCase(), x, y + 44, { charSpace: 0.7 });
+      if (sg[1]) { doc.setFont(F.text, "normal"); doc.setFontSize(9.5); setC(CRUST); doc.text(sg[1], x, y + 22); }
     });
 
-    // ---- Footer: page numbers on every page ----
+    // ---- Running header (pages 2+) and footer (all pages) ----
     var pageCount = doc.internal.getNumberOfPages();
     for (var p = 1; p <= pageCount; p++) {
       doc.setPage(p);
-      doc.setFontSize(8);
-      doc.setTextColor(150, 150, 150);
-      doc.text("Generated by PROFIT PRO — DRR Bakery Food Cost & Menu Price System", margin, doc.internal.pageSize.getHeight() - 20);
-      doc.text("Page " + p + " of " + pageCount, pageWidth - margin - 60, doc.internal.pageSize.getHeight() - 20);
+      if (p > 1) {
+        doc.setFillColor(BARK[0], BARK[1], BARK[2]); doc.rect(0, 0, W, 40, "F");
+        doc.setFillColor(CINNAMON[0], CINNAMON[1], CINNAMON[2]); doc.rect(0, 40, W, 2, "F");
+        doc.setFont("times", "bold"); doc.setFontSize(12); setC(CREAM);
+        doc.text("DRR BAKERY", M, 26);
+        doc.setFont(F.text, "normal"); doc.setFontSize(8); setC(BUTTER);
+        doc.text("Sales & Profitability Report  |  " + rangeLabel + "  |  " + refNo, W - M, 25, { align: "right" });
+      }
+      doc.setDrawColor(WHEAT_LINE[0], WHEAT_LINE[1], WHEAT_LINE[2]); doc.setLineWidth(0.7); doc.line(M, H - 42, W - M, H - 42);
+      doc.setFont(F.text, "normal"); doc.setFontSize(7.5); setC(MOCHA);
+      doc.text("PROFIT PRO — DRR Bakery Food Cost & Menu Price System  |  Confidential — For internal use only", M, H - 28);
+      doc.text("Page " + p + " of " + pageCount, W - M, H - 28, { align: "right" });
     }
 
     var fileDate = new Date().toISOString().slice(0, 10);
     doc.save("DRR-Bakery-Report-" + fileDate + ".pdf");
   }
-  
+
   /* =======================================================================
      Analytics page (analytics.html)
      ======================================================================= */
@@ -3068,28 +3308,48 @@
      Init
      ======================================================================= */
 
+  var appInitStarted = false;
+
   document.addEventListener("DOMContentLoaded", async function () {
-    fillFooterBasics();
-    initPasswordToggles();
-    initSignupForm();
-    initLoginForm();
-    initForgotPasswordForm();
-    initResetPasswordForm();
+    if (appInitStarted) return;      // never initialise a page twice
+    appInitStarted = true;
 
-    var chromeOk = await initAppChrome();
-    if (chromeOk === false) return;
-    fillFooterLinks();
+    function reveal() { document.body.classList.add("app-ready"); }
 
-    await initDashboardPage();
-    await initRecipesListPage();
-    await initRecipeFormPage();
-    await initRecipeViewPage();
-    await initInventoryPage();
-    initAdminPage();
-    initInviteAccountPage();
-    initEditAccountPage();
-    initProfilePage();
-    await initRecordSalePage();
-    await initAnalyticsPage();
+    try {
+      // Trim the menu for the known role right away (before any network call)
+      // so it doesn't visibly change after the page has painted.
+      try {
+        var early = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+        if (early && early.role) filterNavForRole(early.role);
+      } catch (e) { /* ignore */ }
+
+      fillFooterBasics();
+      initPasswordToggles();
+      initSignupForm();
+      initLoginForm();
+      initForgotPasswordForm();
+      initResetPasswordForm();
+
+      var chromeOk = await initAppChrome();
+      if (chromeOk === false) return;   // redirecting - keep the page hidden, no flash
+      fillFooterLinks();
+
+      // Run the page initialisers side by side (only the one for the current
+      // page does any work), each on its own so one failure can't freeze the rest.
+      var inits = [initDashboardPage, initRecipesListPage, initRecipeFormPage, initRecipeViewPage,
+                   initInventoryPage, initAdminPage, initInviteAccountPage, initEditAccountPage,
+                   initProfilePage, initRecordSalePage, initAnalyticsPage];
+      var work = Promise.all(inits.map(function (fn) {
+        return Promise.resolve().then(fn).catch(function (err) {
+          if (!pageIsUnloading) console.error("Page init failed:", fn.name, err);
+        });
+      }));
+      await work;
+    } catch (err) {
+      if (!pageIsUnloading) console.error("App init failed:", err);
+    } finally {
+      reveal();
+    }
   });
 })();

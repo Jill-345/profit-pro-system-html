@@ -6,7 +6,7 @@
             profile.html, record-sale.html, analytics.html
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Caprasimo&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
+/* Fonts are now loaded without blocking the first paint (see script.js). */
 
 :root {
   /* Color tokens — warm bakery palette */
@@ -2109,3 +2109,14 @@ body > #staff-dashboard { flex: 1 0 auto; width: 100%; }
   /* keep the floating chat button clear of the footer text */
   body:has(.ai-chat-fab) .site-footer-bottom-inner { padding: 18px 20px 92px; }
 }
+
+/* ---- Header nav: stable, no layout shift or text selection on rapid clicks ---- */
+.app-nav a { transition: color .15s ease, border-color .15s ease; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.app-nav a.nav-pending { opacity: .75; pointer-events: none; }
+
+/* ---- Instant page changes: no white flash between pages ---- */
+@view-transition { navigation: auto; }
+.app-header { view-transition-name: app-header; }
+::view-transition-group(root) { animation-duration: 0.1s; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.1s; }
+html { scroll-behavior: auto; overflow-anchor: none; }
