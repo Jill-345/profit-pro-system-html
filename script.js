@@ -38,6 +38,9 @@
   var REMEMBER_KEY = "drrBakeryRememberedEmail";
   var SESSION_KEY = "drrBakerySession";
 
+  // Phone number shown in the footer of every page. Change it here (and only here).
+  var CONTACT_PHONE = "+63 000 000 0000";
+
   var ROLES = ["Super Admin", "Admin", "Staff"];
 
   // Which roles may open each page. Pages not listed are open to any logged-in role.
@@ -286,7 +289,7 @@
     if (!form) return;
     var alertEl = document.getElementById("login-alert");
     var emailInput = document.getElementById("email");
-        var rememberInput = document.getElementById("remember");
+    var rememberInput = document.getElementById("remember");
 
     // Only offer "Sign Up" while there is no account yet (first-time setup)
     var signupPrompt = document.getElementById("signup-prompt");
@@ -760,7 +763,7 @@
     }
 
     var firstName = profile.full_name.split(" ")[0] || profile.full_name;
-    var session = { id: supaSession.user.id, firstName: firstName, email: profile.email, role: profile.role };
+    var session = { id: supaSession.user.id, firstName: firstName, fullName: profile.full_name, email: profile.email, role: profile.role };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 
     // Enforce which roles may open this page — with one narrow exception:
@@ -811,7 +814,7 @@
     menu.className = "avatar-menu";
     menu.id = "avatar-menu";
     menu.innerHTML =
-      '<p class="avatar-menu-email">' + session.email + '</p>' +
+      '<p class="avatar-menu-name">' + escAttr(session.fullName || session.firstName) + '</p>' +
       '<p class="avatar-menu-role">' + (session.role || "") + '</p>' +
       '<a href="profile.html" class="avatar-menu-link">Profile</a>' +
       '<button type="button" class="avatar-menu-link avatar-menu-logout" id="avatar-logout-btn">Logout</button>';
@@ -1494,6 +1497,13 @@
     var editingId = new URLSearchParams(window.location.search).get("id");
     var editingRecipe = null;
 
+    if (editingId) {
+      ["recipe-back-btn", "recipe-cancel-btn"].forEach(function (btnId) {
+        var el = document.getElementById(btnId);
+        if (el) el.setAttribute("href", "recipe-view.html?id=" + encodeURIComponent(editingId));
+      });
+    }
+
     var ingredientSelect = document.getElementById("select-ingredient");
     var qtyInput = document.getElementById("input-ing-qty");
     var baseBatchInput = document.getElementById("input-base-batch");
@@ -1871,12 +1881,10 @@
                   '<label>Recipe units per purchase unit</label>' +
                   '<div class="field-control"><input type="number" id="restock-conversion-' + ing.id + '" value="' + (ing.units_per_purchase || 1) + '" min="0.0001" step="any"></div>' +
                 '</div>' +
-                '<div class="field-group" style="margin-bottom:0;flex:0 0 auto;">' +
-                  '<button type="button" class="btn-outline" id="restock-cancel-' + ing.id + '">Cancel</button>' +
-                '</div>' +
-                '<div class="field-group" style="margin-bottom:0;flex:0 0 auto;">' +
-                  '<button type="button" class="btn-dark" id="restock-save-' + ing.id + '">Add Stock</button>' +
-                '</div>' +
+              '</div>' +
+              '<div class="btn-row" style="margin-top:16px;">' +
+                '<button type="button" class="btn-outline" id="restock-cancel-' + ing.id + '">Cancel</button>' +
+                '<button type="button" class="btn-dark" id="restock-save-' + ing.id + '">Add Stock</button>' +
               '</div>' +
             '</td>';
  
@@ -1952,12 +1960,10 @@
               field("Cost per " + ing.unit + " (\u20B1)", "edit-cost", "number", ing.cost_per_unit, ' min="0" step="any"') +
               field("Stock (" + ing.unit + ")", "edit-stock", "number", ing.stock_qty, ' min="0" step="any"') +
               field("Low-stock alert", "edit-low", "number", ing.low_stock_threshold != null ? ing.low_stock_threshold : "", ' min="0" step="any"') +
-              '<div class="field-group" style="margin-bottom:0;flex:0 0 auto;">' +
-                '<button type="button" class="btn-outline" id="edit-cancel-' + ing.id + '">Cancel</button>' +
-              '</div>' +
-              '<div class="field-group" style="margin-bottom:0;flex:0 0 auto;">' +
-                '<button type="button" class="btn-dark" id="edit-save-' + ing.id + '">Save</button>' +
-              '</div>' +
+            '</div>' +
+            '<div class="btn-row" style="margin-top:16px;">' +
+              '<button type="button" class="btn-outline" id="edit-cancel-' + ing.id + '">Cancel</button>' +
+              '<button type="button" class="btn-dark" id="edit-save-' + ing.id + '">Save</button>' +
             '</div>' +
           '</td>';
 
@@ -2018,6 +2024,16 @@
     addBtn.addEventListener("click", function () {
       addForm.classList.toggle("is-visible");
       if (addForm.classList.contains("is-visible")) addForm.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+
+    document.getElementById("cancel-ingredient-btn").addEventListener("click", function () {
+      ["ing-name","ing-category","ing-qty-purchased","ing-total-price","ing-supplier","ing-start-stock","ing-low-stock","ing-purchase-unit"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.value = "";
+      });
+      document.getElementById("ing-conversion").value = "1";
+      updateCostPreview();
+      addForm.classList.remove("is-visible");
     });
 
     var qtyInput = document.getElementById("ing-qty-purchased");
@@ -2188,6 +2204,12 @@
         updateBreadStockPreview();
         addBreadForm.scrollIntoView({ behavior: "smooth", block: "center" });
       }
+    });
+
+    document.getElementById("cancel-bread-stock-btn").addEventListener("click", function () {
+      bsQty.value = "";
+      updateBreadStockPreview();
+      addBreadForm.classList.remove("is-visible");
     });
 
     bsSelect.addEventListener("change", updateBreadStockPreview);
@@ -2541,22 +2563,30 @@
      ======================================================================= */
 
   function initProfilePage() {
-    var nameInput = document.getElementById("profile-name");
-    if (!nameInput) return;
+    var firstNameInput = document.getElementById("profile-first-name");
+    if (!firstNameInput) return;
+    var lastNameInput = document.getElementById("profile-last-name");
 
     var session = getSession();
     if (!session) { window.location.href = "index.html"; return; }
 
+    // Everything on this page is read-only except the business settings,
+    // which only the Super Admin has. Nobody else has anything to save.
     var businessSection = document.getElementById("business-settings-section");
-    if (session.role !== "Super Admin" && businessSection) {
-      businessSection.style.display = "none";
+    var actionsRow = document.getElementById("profile-actions");
+    if (session.role !== "Super Admin") {
+      if (businessSection) businessSection.style.display = "none";
+      if (actionsRow) actionsRow.style.display = "none";
     }
 
     async function load() {
       var profileResult = await supabaseClient.from("profiles").select("*").eq("email", session.email).maybeSingle();
       var profile = profileResult.data;
 
-      nameInput.value = profile ? profile.full_name : session.firstName;
+      // The name is stored as one full name; show it split into first / last (read-only).
+      var nameParts = String(profile ? profile.full_name : session.firstName).trim().split(/\s+/);
+      firstNameInput.value = nameParts[0] || "";
+      lastNameInput.value = nameParts.slice(1).join(" ");
       document.getElementById("profile-email").value = session.email;
       document.getElementById("profile-role").value = profile ? profile.role : "Staff";
 
@@ -2570,52 +2600,28 @@
       }
     }
 
-    document.getElementById("save-profile-btn").addEventListener("click", async function () {
-      var fullName = nameInput.value.trim();
-      var newPassword = document.getElementById("profile-password").value;
-      var saveBtn = document.getElementById("save-profile-btn");
-      saveBtn.disabled = true;
+    var saveBtn = document.getElementById("save-profile-btn");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", async function () {
+        if (session.role !== "Super Admin") return;
+        saveBtn.disabled = true;
 
-      if (newPassword) {
-        if (!isValidPassword(newPassword)) {
-          saveBtn.disabled = false;
-          toast("New password needs 8+ characters with uppercase, lowercase, a number, and a symbol.");
-          return;
-        }
-        var pwResult = await supabaseClient.auth.updateUser({ password: newPassword });
-        if (pwResult.error) {
-          saveBtn.disabled = false;
-          toast("Couldn't update password: " + pwResult.error.message);
-          return;
-        }
-      }
-
-      var nameResult = await supabaseClient.from("profiles").update({ full_name: fullName }).eq("email", session.email);
-      if (nameResult.error) {
-        saveBtn.disabled = false;
-        toast("Couldn't save profile: " + nameResult.error.message);
-        return;
-      }
-
-      session.firstName = fullName.split(" ")[0] || fullName;
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-
-      if (session.role === "Super Admin") {
-        await supabaseClient.from("business_settings").update({
+        var result = await supabaseClient.from("business_settings").update({
           bakery_name: document.getElementById("business-name").value.trim(),
           currency: document.getElementById("business-currency").value,
           target_food_cost_pct: parseFloat(document.getElementById("business-target-foodcost").value) || 0,
           business_hours: document.getElementById("business-hours").value.trim()
         }).eq("id", 1);
-        await logActivitySupa("Updated profile & business settings");
-      } else {
-        await logActivitySupa("Updated profile");
-      }
 
-      saveBtn.disabled = false;
-      document.getElementById("profile-password").value = "";
-      toast("Changes saved.");
-    });
+        saveBtn.disabled = false;
+        if (result.error) {
+          toast("Couldn't save settings: " + result.error.message);
+          return;
+        }
+        await logActivitySupa("Updated business settings");
+        toast("Changes saved.");
+      });
+    }
 
     load();
   }
@@ -3025,10 +3031,45 @@
   }
 
   /* =======================================================================
+     Footer (every page): year, phone number, and the link list
+     ======================================================================= */
+
+  function fillFooterBasics() {
+    document.querySelectorAll(".footer-year").forEach(function (el) { el.textContent = new Date().getFullYear(); });
+    document.querySelectorAll(".footer-phone-text").forEach(function (el) { el.textContent = CONTACT_PHONE; });
+  }
+
+  // Logged in: mirror the header menu (so each role sees only its own pages).
+  // Logged out (login / sign-up pages): show the account links instead.
+  function fillFooterLinks() {
+    var list = document.getElementById("footer-links");
+    if (!list) return;
+    var items = [];
+    document.querySelectorAll(".app-header .app-nav a").forEach(function (a) {
+      items.push({ text: a.textContent.trim(), href: a.getAttribute("href") });
+    });
+    if (!items.length) {
+      var heading = document.getElementById("footer-links-heading");
+      if (heading) heading.textContent = "Account";
+      items = [{ text: "Log in", href: "index.html" }, { text: "Forgot password", href: "forgot-password.html" }];
+    }
+    list.innerHTML = "";
+    items.forEach(function (item) {
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.textContent = item.text;
+      a.setAttribute("href", item.href);
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+  }
+
+  /* =======================================================================
      Init
      ======================================================================= */
 
   document.addEventListener("DOMContentLoaded", async function () {
+    fillFooterBasics();
     initPasswordToggles();
     initSignupForm();
     initLoginForm();
@@ -3037,6 +3078,7 @@
 
     var chromeOk = await initAppChrome();
     if (chromeOk === false) return;
+    fillFooterLinks();
 
     await initDashboardPage();
     await initRecipesListPage();

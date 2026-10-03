@@ -559,11 +559,12 @@ button {
   display: block;
 }
 
-.avatar-menu-email {
+.avatar-menu-name {
   margin: 0 0 2px;
-  font-size: 0.8rem;
-  color: var(--color-mocha);
-  word-break: break-all;
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: var(--color-crust);
+  word-break: break-word;
 }
 
 .avatar-menu-role {
@@ -597,6 +598,7 @@ button {
 
 .avatar-menu-logout {
   color: var(--color-cinnamon-dark);
+  border-radius: 0;
   border-top: 1px solid var(--color-wheat-line);
   margin-top: 4px;
   padding-top: 12px;
@@ -1261,11 +1263,11 @@ button {
 
 .data-table th {
   background: var(--color-field);
-  color: var(--color-mocha);
+  color: var(--color-crust);
   text-transform: none;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  font-weight: 800;
   text-align: left;
   padding: 11px 14px;
   border-bottom: 1px solid var(--color-wheat-line);
@@ -1684,8 +1686,8 @@ h1, h2, h3, .page-heading, .section-title { font-weight: 800; letter-spacing: -0
 .panel h3 { font-weight: 800; font-size: 1.12rem; }
 
 /* ---- Floating assistant: robot head, speech-bubble corner ---- */
-.ai-chat-fab { border-radius: 20px 20px 20px 5px; background: var(--color-bark); color: var(--color-butter); width: 60px; height: 60px; }
-.ai-chat-fab:hover { background: var(--color-crust); transform: translateY(-2px); }
+.ai-chat-fab { border-radius: 20px 20px 20px 5px; background: var(--color-bark); color: #FFF6E6; border: 2px solid var(--color-butter); width: 60px; height: 60px; }
+.ai-chat-fab:hover { background: var(--color-crust); border-color: #F6D58C; transform: translateY(-2px); }
 .ai-chat-header { background: var(--color-bark); }
 .ai-chat-header .ai-chat-avatar { background: var(--color-butter); color: var(--color-bark); border-radius: 10px; width: 34px; height: 34px; }
 .ai-chat-header-text .ai-chat-title { font-family: var(--font-display); font-weight: 800; }
@@ -1958,3 +1960,152 @@ img, svg, video { max-width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) { .action-chev { transition: none; } }
+
+/* ==========================================================================
+   Accessibility - dark lines, clear read-only fields, Back / Cancel buttons,
+   and a formal footer. Everything above this line is unchanged.
+   ========================================================================== */
+
+/* ---- 1. Darker lines and borders (one token drives every border in the system) ---- */
+:root { --color-wheat-line: #5C4636; }
+
+/* controls get a thicker 2px edge so they are easy to find */
+.field-control input,
+.field-control select,
+.field-control textarea,
+.search-field,
+.btn-outline,
+.btn-google,
+.chip,
+.tab-btn { border-width: 2px; }
+
+/* colours that were hard-coded pale */
+.form-alert.form-alert-error { border-color: var(--color-bad-fg); }
+.form-alert.form-alert-success { border-color: var(--color-good-fg); }
+.chip.chip-danger { border-color: var(--color-bad-fg); }
+
+/* lines that sit on the dark brown surfaces */
+.stat-list { background: rgba(253, 248, 240, 0.45); }
+.nav-toggle { border-color: rgba(253, 248, 240, 0.7); }
+.dash-photo img { outline: 1px solid var(--color-bark); }
+@media (max-width: 980px) {
+  .app-nav li + li a { border-top: 1px solid rgba(253, 248, 240, 0.4); }
+}
+
+/* ---- 2. Read-only fields: tinted + dashed edge, so it is not colour alone ---- */
+.field-control input[readonly],
+.field-control input:disabled {
+  background: #EFE6D6;
+  color: var(--color-crust);
+  -webkit-text-fill-color: var(--color-crust);
+  opacity: 1;
+  border-style: dashed;
+  cursor: default;
+}
+.field-control input[readonly]:focus { background: #EFE6D6; border-color: var(--color-crust); }
+.readonly-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 18px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-crust);
+}
+.readonly-note svg { flex-shrink: 0; }
+
+/* ---- 3. Back button ---- */
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 22px;
+  padding: 9px 16px 9px 12px;
+  background: var(--color-white);
+  color: var(--color-crust);
+  border: 2px solid var(--color-crust);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.btn-back:hover { background: var(--color-crust); color: var(--color-cream); text-decoration: none; }
+.btn-back svg { flex-shrink: 0; }
+.btn-outline { border-color: var(--color-crust); text-decoration: none; }
+.btn-outline:hover { background: var(--color-field); }
+
+/* ---- 4. Footer ---- */
+body { display: flex; flex-direction: column; }
+body > main,
+body > .app-main,
+body > .auth-shell,
+body > .card-shell,
+body > #admin-dashboard-sections,
+body > #staff-dashboard { flex: 1 0 auto; width: 100%; }
+.auth-shell, .card-shell, .auth-photo { min-height: 0; }
+
+.site-footer {
+  margin-top: auto;
+  background: var(--color-bark);
+  color: rgba(253, 248, 240, 0.88);
+  border-top: 3px solid var(--color-butter);
+}
+.site-footer-main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 52px 40px 44px;
+  display: grid;
+  grid-template-columns: 1.7fr 1fr 1fr;
+  gap: 56px;
+}
+.footer-logo { display: flex; align-items: center; gap: 12px; color: var(--color-butter); }
+.footer-logo span { font-family: var(--font-brand); font-size: 1.55rem; color: var(--color-cream); letter-spacing: 0.01em; }
+.footer-about p { margin: 16px 0 0; max-width: 36ch; font-size: 0.95rem; line-height: 1.65; color: rgba(253, 248, 240, 0.82); }
+
+.footer-heading { margin: 0 0 18px; font-family: var(--font-display); font-size: 0.98rem; font-weight: 800; letter-spacing: 0.02em; color: var(--color-butter); }
+.footer-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+.footer-links a { color: rgba(253, 248, 240, 0.92); text-decoration: none; font-size: 0.95rem; }
+.footer-links a:hover { color: var(--color-butter); text-decoration: underline; text-underline-offset: 4px; }
+.footer-nav-col:has(.footer-links:empty) { visibility: hidden; }
+
+/* contact is plain text: not a link, no hover */
+.footer-phone { display: inline-flex; align-items: center; gap: 14px; color: var(--color-cream); cursor: default; }
+.footer-phone-icon {
+  flex-shrink: 0; width: 46px; height: 46px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(253, 248, 240, 0.6); color: var(--color-butter);
+}
+.footer-phone-body { display: flex; flex-direction: column; gap: 2px; }
+.footer-phone-body small { font-size: 0.82rem; color: rgba(253, 248, 240, 0.78); }
+.footer-phone-body strong { font-size: 1.12rem; font-weight: 700; letter-spacing: 0.01em; }
+
+.site-footer-bottom { border-top: 1px solid rgba(253, 248, 240, 0.3); }
+.site-footer-bottom-inner {
+  max-width: 1180px; margin: 0 auto; padding: 18px 40px;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 24px;
+  text-align: center; font-size: 0.85rem;
+}
+.site-footer-bottom-inner p { margin: 0; }
+.footer-phone-inline { display: none; }
+
+/* login / sign-up / reset pages: a slim footer so the form stays in view */
+.site-footer.is-compact .site-footer-main { display: none; }
+.site-footer.is-compact .site-footer-bottom { border-top: 0; }
+.site-footer.is-compact .footer-phone-inline { display: block; }
+.site-footer.is-compact .site-footer-bottom-inner { padding-top: 20px; padding-bottom: 20px; flex-direction: column; gap: 4px; }
+
+@media (max-width: 900px) {
+  .auth-photo { min-height: 200px; }
+  .site-footer-main { grid-template-columns: 1fr 1fr; gap: 40px 32px; padding: 44px 24px 36px; }
+  .footer-about { grid-column: 1 / -1; }
+  .site-footer-bottom-inner { padding-left: 24px; padding-right: 24px; }
+}
+@media (max-width: 760px) {
+  .site-footer-bottom-inner { flex-direction: column; gap: 6px; }
+}
+@media (max-width: 640px) {
+  .site-footer-main { grid-template-columns: 1fr; gap: 32px; padding: 36px 20px 30px; }
+  .site-footer-bottom-inner { padding: 18px 20px; }
+  /* keep the floating chat button clear of the footer text */
+  body:has(.ai-chat-fab) .site-footer-bottom-inner { padding: 18px 20px 92px; }
+}
