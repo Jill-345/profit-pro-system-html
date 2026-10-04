@@ -68,19 +68,46 @@
     </div>
   </div>
 
-  <h2 class="section-title">Best Selling / Lowest Selling Bread</h2>
-  <div class="info-box-row">
-    <div class="info-box solid">
-      <p class="info-label">Best selling</p>
-      <p class="info-value" style="font-size:1.15rem;" id="best-selling-text">Pandesal — 180 pcs sold</p>
+  <h2 class="section-title">Sales Charts</h2>
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3 id="chart-trend-title">Sales vs Production Cost</h3>
+        <div class="chart-tabs" id="chart-trend-tabs" role="group" aria-label="Chart range">
+          <button type="button" data-mode="daily">Daily</button>
+          <button type="button" data-mode="weekly">Weekly</button>
+          <button type="button" data-mode="monthly" class="active">Monthly</button>
+          <button type="button" data-mode="yearly">Yearly</button>
+        </div>
+        <div class="chart-legend" aria-hidden="false">
+          <span><i class="chart-swatch" style="background:#C1662F"></i>Sales</span>
+          <span><i class="chart-swatch" style="background:#2878A8"></i>Production cost</span>
+        </div>
+      </div>
+      <p class="chart-sub" id="chart-trend-sub" style="margin:0 0 6px;"></p>
+      <div class="chart-body" id="chart-trend"></div>
     </div>
-    <div class="info-box solid">
-      <p class="info-label">Lowest selling</p>
-      <p class="info-value" style="font-size:1.15rem;" id="lowest-selling-text">Spanish Bread — 10 pcs sold</p>
+    <div class="chart-card">
+      <div class="chart-head"><h3>Profit Margin by Bread</h3><span class="chart-sub">Dashed line = 50% High Profit mark</span></div>
+      <div class="chart-body" id="chart-margin"></div>
+    </div>
+  </div>
+  <div class="chart-tip" id="chart-tip" role="status"></div>
+
+  <h2 class="section-title">Best Selling / Lowest Selling Bread</h2>
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-head"><h3>Best Selling Bread</h3><span class="chart-sub">Pieces sold</span></div>
+      <div class="chart-body" id="chart-best"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head"><h3>Lowest Selling Bread</h3><span class="chart-sub">Pieces sold</span></div>
+      <div class="chart-body" id="chart-lowest"></div>
     </div>
   </div>
 
   <h2 class="section-title">Bread Profitability Ranking</h2>
+  <p class="chart-sub" style="margin:-4px 0 10px;">All breads are listed. The 5 most profitable are highlighted.</p>
   <div class="table-wrap">
     <table class="data-table">
       <thead>

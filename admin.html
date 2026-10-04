@@ -36,15 +36,21 @@
 <main class="app-main">
   <div class="page-heading-row">
     <h1 class="page-heading">Accounts</h1>
-    <a class="btn-dark" href="invite-account.html">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-      Invite account
-    </a>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;" id="accounts-actions">
+      <a class="btn-outline" href="invite-account.html">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16v12H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 7l8 6 8-6" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        Invite account
+      </a>
+      <a class="btn-dark" href="create-account.html">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        Create account
+      </a>
+    </div>
   </div>
 
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Last Name</th><th>First Name</th><th>Middle Name</th><th>Role</th><th>Email</th><th>Status</th><th></th></tr></thead>
       <tbody id="accounts-body"></tbody>
     </table>
   </div>

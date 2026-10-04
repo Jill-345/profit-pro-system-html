@@ -38,17 +38,25 @@
           <div class="field-group">
             <label for="first-name">First Name</label>
             <div class="field-control">
-              <input type="text" id="first-name" name="first-name">
+              <input type="text" id="first-name" name="first-name" autocomplete="given-name">
             </div>
             <p class="field-error" id="first-name-error"></p>
           </div>
           <div class="field-group">
-            <label for="last-name">Last Name</label>
+            <label for="middle-name">Middle Name <span class="field-hint" style="display:inline;">(optional)</span></label>
             <div class="field-control">
-              <input type="text" id="last-name" name="last-name">
+              <input type="text" id="middle-name" name="middle-name" autocomplete="additional-name">
             </div>
-            <p class="field-error" id="last-name-error"></p>
+            <p class="field-error" id="middle-name-error"></p>
           </div>
+        </div>
+
+        <div class="field-group">
+          <label for="last-name">Last Name</label>
+          <div class="field-control">
+            <input type="text" id="last-name" name="last-name" autocomplete="family-name">
+          </div>
+          <p class="field-error" id="last-name-error"></p>
         </div>
 
         <div class="field-group">

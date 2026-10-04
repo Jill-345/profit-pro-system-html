@@ -57,6 +57,7 @@
   var ROUTE_ROLES = {
     "admin.html": ["Super Admin"],
     "invite-account.html": ["Super Admin"],
+    "create-account.html": ["Super Admin"],
     "edit-account.html": ["Super Admin"],
     "analytics.html": ["Admin", "Super Admin"],
     "recipe-form.html": ["Admin", "Super Admin"]
@@ -82,6 +83,26 @@
       if (users[i].email === target) return users[i];
     }
     return null;
+  }
+
+  /* ---- Names: first / middle / last ----
+     Profiles keep a combined full_name (used everywhere for display) and, once
+     supabase-name-fields.sql has been run, separate first_name / middle_name /
+     last_name columns. Older accounts without those columns are split by
+     position: first word = first name, last word = last name, the rest = middle. */
+  function splitFullName(full) {
+    var p = String(full || "").trim().split(/\s+/).filter(Boolean);
+    if (p.length <= 1) return { first: p[0] || "", middle: "", last: "" };
+    return { first: p[0], middle: p.slice(1, -1).join(" "), last: p[p.length - 1] };
+  }
+  function nameOf(rec) {
+    if (rec && (rec.first_name || rec.last_name)) {
+      return { first: rec.first_name || "", middle: rec.middle_name || "", last: rec.last_name || "" };
+    }
+    return splitFullName(rec && rec.full_name);
+  }
+  function joinName(first, middle, last) {
+    return [first, middle, last].map(function (x) { return String(x || "").trim(); }).filter(Boolean).join(" ");
   }
 
   function getSession() {
@@ -187,6 +208,8 @@
     var params = new URLSearchParams(window.location.search);
     var inviteId = params.get("invite");
     var invitedRecord = null;
+    var setupMode = params.get("setup") === "1";   // arrived from the emailed confirmation link
+    var confirmedSession = null;
 
     function showBlocked(message, heading) {
       if (formWrap) formWrap.style.display = "none";
@@ -199,6 +222,25 @@
     }
 
     async function setup() {
+      if (setupMode) {
+        // They clicked the confirmation email: Supabase has already confirmed the
+        // email and signed them in. All that's left is their name + a password.
+        var sess = await getSessionResilient();
+        var smeta = (sess && sess.user && sess.user.user_metadata) || {};
+        if (!sess) {
+          showBlocked("This confirmation link has expired or was already used. If you already finished signing up, log in. Otherwise ask your Super Admin to send a new invite.", "Link Expired");
+          return;
+        }
+        if (smeta.account_setup_done === true) { window.location.href = "dashboard.html"; return; }
+        confirmedSession = sess;
+        if (headingEl) headingEl.textContent = "Email Confirmed";
+        if (subheadingEl) subheadingEl.textContent = "Welcome to DRR Bakery! Add your name and choose a password to finish creating your account.";
+        emailInput.value = sess.user.email || "";
+        emailInput.setAttribute("disabled", "disabled");
+        var submitLabel = form.querySelector("button[type='submit']");
+        if (submitLabel) submitLabel.textContent = "Finish Sign Up";
+        return;
+      }
       if (inviteId) {
         var inviteResult = await supabaseClient.rpc("get_invite", { invite_id: inviteId });
         var record = inviteResult.data && inviteResult.data[0];
@@ -209,9 +251,11 @@
         invitedRecord = record;
         if (headingEl) headingEl.textContent = "Complete Your Account";
         if (subheadingEl) subheadingEl.textContent = "You're joining DRR Bakery as " + record.role + ". Set your password to finish.";
-        var nameParts = record.full_name.split(" ");
-        document.getElementById("first-name").value = nameParts[0] || "";
-        document.getElementById("last-name").value = nameParts.slice(1).join(" ");
+        var invitedName = nameOf(record);
+        document.getElementById("first-name").value = invitedName.first;
+        var midInput = document.getElementById("middle-name");
+        if (midInput) midInput.value = invitedName.middle;
+        document.getElementById("last-name").value = invitedName.last;
         emailInput.value = record.email;
         emailInput.setAttribute("disabled", "disabled");
       } else {
@@ -234,6 +278,7 @@
       clearAllFieldErrors(form);
 
       var firstName = document.getElementById("first-name").value.trim();
+      var middleName = (document.getElementById("middle-name") || { value: "" }).value.trim();
       var lastName = document.getElementById("last-name").value.trim();
       var email = invitedRecord ? invitedRecord.email : document.getElementById("email").value.trim();
       var password = document.getElementById("password").value;
@@ -241,7 +286,7 @@
 
       if (!firstName) { setFieldError("first-name", "First name is required."); hasError = true; }
       if (!lastName) { setFieldError("last-name", "Last name is required."); hasError = true; }
-      if (!invitedRecord) {
+      if (!invitedRecord && !confirmedSession) {
         if (!email) {
           setFieldError("email", "Email is required."); hasError = true;
         } else if (!isValidEmail(email)) {
@@ -258,7 +303,33 @@
       var submitBtn = form.querySelector("button[type='submit']");
       submitBtn.disabled = true;
 
-      var fullName = (firstName + " " + lastName).trim();
+      var fullName = joinName(firstName, middleName, lastName);
+
+      if (confirmedSession) {
+        // Email already confirmed: set the password, save the name, go to the app.
+        var upd = await supabaseClient.auth.updateUser({
+          password: password,
+          data: { full_name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName, account_setup_done: true }
+        });
+        if (upd.error) {
+          submitBtn.disabled = false;
+          showAlert(alertEl, "error", upd.error.message || "Couldn't save your password.");
+          return;
+        }
+        var saved = await supabaseClient.rpc("complete_account_setup", { p_first: firstName, p_middle: middleName, p_last: lastName });
+        if (saved.error) {
+          // Fallback if the SQL helper hasn't been installed: update the profile row directly.
+          saved = await supabaseClient.from("profiles").update({ full_name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName }).eq("id", confirmedSession.user.id);
+          if (saved.error) {
+            saved = await supabaseClient.from("profiles").update({ full_name: fullName }).eq("id", confirmedSession.user.id);
+          }
+        }
+        sessionStorage.removeItem(SESSION_KEY);
+        setFlash("Welcome to DRR Bakery, " + firstName + "!");
+        showAlert(alertEl, "success", "All set! Taking you to DRR Bakery\u2026");
+        setTimeout(function () { window.location.href = "dashboard.html"; }, 900);
+        return;
+      }
 
       // The profile row, role, invite status and activity log entry are now
       // created server-side by the handle_new_user trigger (see fix-signup.sql),
@@ -268,7 +339,7 @@
         email: email,
         password: password,
         options: {
-          data: { full_name: fullName },
+          data: { full_name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName },
           emailRedirectTo: window.location.origin + window.location.pathname.replace(/[^\/]*$/, "") + "index.html"
         }
       });
@@ -365,7 +436,7 @@
         localStorage.removeItem(REMEMBER_KEY);
       }
 
-      var firstName = profile.full_name.split(" ")[0] || profile.full_name;
+      var firstName = nameOf(profile).first || profile.full_name;
       sessionStorage.setItem(SESSION_KEY, JSON.stringify({ firstName: firstName, email: profile.email, role: profile.role }));
       showAlert(alertEl, "success", "Welcome back, " + firstName + "! Redirecting\u2026");
       setTimeout(function () { window.location.href = "dashboard.html"; }, 900);
@@ -549,6 +620,78 @@
 
   /* ---- Ingredients ---- */
 
+  // The only categories a raw ingredient can belong to (used by the dropdowns).
+  var INGREDIENT_CATEGORIES = [
+    "Flour & Grains",
+    "Sugars & Sweeteners",
+    "Fats & Oils",
+    "Dairy & Liquids",
+    "Eggs",
+    "Yeast & Baking Soda",
+    "Flavorings & Spices",
+    "Add-ins & Toppings"
+  ];
+
+  // Builds <option> tags. If an older ingredient has a category that is not in the
+  // list, it is kept as an extra option so editing it never silently changes it.
+  function categoryOptionsHtml(selected, withPlaceholder) {
+    // The placeholder is only the prompt shown before choosing - it is hidden from the dropdown list itself.
+    var html = withPlaceholder ? '<option value="" disabled selected hidden>Select category</option>' : "";
+    var list = INGREDIENT_CATEGORIES.slice();
+    if (selected && list.indexOf(selected) === -1) list.push(selected);
+    list.forEach(function (c) {
+      html += '<option value="' + escAttr(c) + '"' + (c === selected ? " selected" : "") + ">" + escAttr(c) + "</option>";
+    });
+    return html;
+  }
+
+  // Units that can be converted into each other: weight (g, kg), volume (ml, L) and count (pc).
+  var UNIT_FAMILY = { g: ["w", 1], kg: ["w", 1000], ml: ["v", 1], L: ["v", 1000], pc: ["c", 1] };
+
+  // How many "to" units are in one "from" unit (e.g. kg -> g = 1000). Returns null if they can't be converted (e.g. kg -> ml).
+  function unitFactor(from, to) {
+    var a = UNIT_FAMILY[from], b = UNIT_FAMILY[to];
+    if (!a || !b || a[0] !== b[0]) return null;
+    return a[1] / b[1];
+  }
+
+  function unitOptionsHtml(selected) {
+    return ["g", "kg", "ml", "L", "pc"].map(function (u) {
+      return '<option value="' + u + '"' + (u === selected ? " selected" : "") + ">" + u + "</option>";
+    }).join("");
+  }
+
+  // Cost per unit can be a fraction of a peso (e.g. flour is about P0.05/g), so never round it to 2 decimals.
+  function fmtUnitCost(n) {
+    var v = Number(n) || 0;
+    return v >= 1 ? v.toFixed(2) : v.toFixed(4);
+  }
+
+  // Ingredient prices changed -> keep every recipe that uses it in sync (line costs, batch cost, cost per piece).
+  async function recalcRecipesForIngredient(ingredientId, newCostPerUnit) {
+    try {
+      var linesRes = await supabaseClient.from("recipe_ingredients").select("id, recipe_id, quantity").eq("ingredient_id", ingredientId);
+      var lines = linesRes.data || [];
+      if (!lines.length) return;
+      for (var i = 0; i < lines.length; i++) {
+        await supabaseClient.from("recipe_ingredients").update({ line_cost: lines[i].quantity * newCostPerUnit }).eq("id", lines[i].id);
+      }
+      var recipeIds = lines.map(function (l) { return l.recipe_id; }).filter(function (v, idx, a) { return a.indexOf(v) === idx; });
+      for (var r = 0; r < recipeIds.length; r++) {
+        var rid = recipeIds[r];
+        var allLines = await supabaseClient.from("recipe_ingredients").select("line_cost").eq("recipe_id", rid);
+        var recRes = await supabaseClient.from("recipes").select("base_batch_size").eq("id", rid).maybeSingle();
+        var total = (allLines.data || []).reduce(function (sum, l) { return sum + (l.line_cost || 0); }, 0);
+        var base = recRes.data ? recRes.data.base_batch_size : 0;
+        await supabaseClient.from("recipes").update({
+          total_batch_cost: total,
+          cost_per_piece: base > 0 ? total / base : 0,
+          updated_at: new Date().toISOString()
+        }).eq("id", rid);
+      }
+    } catch (e) { /* recipe costs will refresh next time the recipe is saved */ }
+  }
+
   async function fetchIngredients() {
     var result = await supabaseClient.from("ingredients").select("*").order("name");
     return result.data || [];
@@ -647,11 +790,12 @@
     return result.data || [];
   }
 
-  async function insertBreadBatch(recipeId, qtyBaked, consumedIngredients) {
+  async function insertBreadBatch(recipeId, qtyBaked, consumedIngredients, batchName) {
     var batchResult = await supabaseClient.from("bread_inventory").insert({
       recipe_id: recipeId,
       quantity_baked: qtyBaked,
       quantity_sold: 0,
+      batch: batchName || null,
       date_baked: new Date().toISOString().slice(0, 10),
       logged_by: currentUserId()
     }).select().single();
@@ -812,6 +956,14 @@
       return false;
     }
 
+    // Someone who clicked an invite email but hasn't added their name/password yet
+    // must finish sign-up first.
+    var meta = (supaSession.user && supaSession.user.user_metadata) || {};
+    if (meta.account_setup_done === false) {
+      window.location.href = "signup.html?setup=1";
+      return false;
+    }
+
     // Fast path: if this tab already knows who is logged in, render immediately
     // from that and double-check the profile in the background. This removes one
     // network round-trip from every page load / refresh.
@@ -829,7 +981,7 @@
           sessionStorage.removeItem(SESSION_KEY);
           window.location.href = "index.html";
         } else if (p.role !== cached.role || p.full_name !== profile.full_name) {
-          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: supaSession.user.id, firstName: p.full_name.split(" ")[0] || p.full_name, fullName: p.full_name, email: p.email, role: p.role }));
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: supaSession.user.id, firstName: nameOf(p).first || p.full_name, fullName: p.full_name, email: p.email, role: p.role }));
           window.location.reload();
         }
       }).catch(function () {});
@@ -843,7 +995,7 @@
       }
     }
 
-    var firstName = profile.full_name.split(" ")[0] || profile.full_name;
+    var firstName = nameOf(profile).first || profile.full_name;
     var session = { id: supaSession.user.id, firstName: firstName, fullName: profile.full_name, email: profile.email, role: profile.role };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 
@@ -1311,6 +1463,28 @@
     await renderTopBreadDonut();
   }
 
+  /* ---- Money axes for charts: ₱1K, ₱2K, ₱5K, ₱10K ... ----
+     Picks a "nice" step (1, 2 or 5 x 10^n, never below 1K) so the top of the axis
+     is at least floorMax and grows automatically when sales are bigger. */
+  function axisScale(top, floorMax, ticks, startPow) {
+    var need = Math.max(top || 0, floorMax || 0, 1);
+    var mult = [1, 2, 5];
+    for (var p = (startPow == null ? 3 : startPow); p < 12; p++) {
+      for (var k = 0; k < mult.length; k++) {
+        var step = mult[k] * Math.pow(10, p);
+        if (step * ticks >= need) return { step: step, max: step * ticks };
+      }
+    }
+    var big = Math.pow(10, 12);
+    return { step: big, max: big * ticks };
+  }
+  function fmtAxisPeso(n) {
+    if (!n) return "\u20B10";
+    if (n >= 1000000) return "\u20B1" + +(n / 1000000).toFixed(1) + "M";
+    if (n >= 1000) return "\u20B1" + +(n / 1000).toFixed(1) + "K";
+    return "\u20B1" + n;
+  }
+
   async function renderMonthlySalesChart() {
     var body = document.getElementById("bar-chart-body");
     if (!body) return;
@@ -1332,7 +1506,9 @@
       else if (d.getFullYear() === currentYear - 1) past[m] += r.total_amount;
     });
 
-    var maxVal = Math.max(1000, Math.ceil(Math.max.apply(null, current.concat(past)) / 1000) * 1000);
+    // Axis starts at a readable scale (₱0 - ₱10K in ₱2K steps) and grows with sales.
+    var dashScale = axisScale(Math.max.apply(null, current.concat(past)), 10000, 5);
+    var maxVal = dashScale.max;
     var showCurrent = true, showPast = true;
 
     function render() {
@@ -1360,9 +1536,9 @@
       });
       var axis = document.getElementById("bar-axis-labels");
       axis.innerHTML = "";
-      for (var v = 0; v <= maxVal; v += Math.ceil(maxVal / 5 / 1000) * 1000) {
+      for (var v = 0; v <= maxVal; v += dashScale.step) {
         var s = document.createElement("span");
-        s.textContent = "\u20B1" + (v / 1000) + "K";
+        s.textContent = fmtAxisPeso(v);
         axis.appendChild(s);
       }
     }
@@ -1668,7 +1844,7 @@
       document.getElementById("suggested-selling-price").textContent = "\u20B1" + suggested.toFixed(2);
 
       renderLossCheck(costPerPiece, targetPct || 0, suggested);
-      return { totalCost: totalCost, costPerPiece: costPerPiece, suggested: suggested };
+      return { totalCost: totalCost, baseTotalCost: totalBatchCostRaw(), costPerPiece: costPerPiece, suggested: suggested };
     }
 
     function renderLossCheck(costPerPiece, targetPct, suggested) {
@@ -1687,7 +1863,7 @@
       }
       rows.forEach(function (r) {
         var pct = r.price > 0 ? (r.cost / r.price) * 100 : 0;
-        var isLoss = targetPct > 0 ? pct > targetPct + 10 : pct > 45;
+        var isLoss = targetPct > 0 ? pct > targetPct : pct > 45;
         var tr = document.createElement("tr");
         tr.innerHTML = "<td>\u20B1" + r.price.toFixed(2) + "</td>" +
           "<td>" + pct.toFixed(1) + "%</td>" +
@@ -1725,25 +1901,34 @@
       var saveBtn = document.getElementById("save-recipe-btn");
       saveBtn.disabled = true;
 
+      // Don't allow two recipes with the same name.
+      var dupe = await supabaseClient.from("recipes").select("id").ilike("name", name.replace(/[%_]/g, "\\$&"));
+      var sameName = (dupe.data || []).filter(function (r) { return String(r.id) !== String(editingId); });
+      if (sameName.length) {
+        saveBtn.disabled = false;
+        toast('A recipe named "' + name + '" already exists. Open it to edit it, or use a different name.');
+        return;
+      }
+
       var result = await saveRecipe({
         name: name, category: category, baseBatchSize: baseBatch, portionsPerPiece: portions,
-        notes: notesInput.value.trim(), totalBatchCost: totals.totalCost, costPerPiece: totals.costPerPiece,
+        notes: notesInput.value.trim(), totalBatchCost: totals.baseTotalCost, costPerPiece: totals.costPerPiece,
         targetFoodCostPct: targetPct, suggestedSellingPrice: totals.suggested || null, sellingPrice: sellingPrice
       }, lineItems, editingId);
 
-      saveBtn.disabled = false;
-
       if (result.error) {
+        saveBtn.disabled = false;
         toast("Couldn't save recipe: " + result.error.message);
         return;
       }
+      // Success: leave the button disabled until the page moves on, so it can't be saved twice.
 
       await logActivitySupa((editingId ? "Updated recipe - " : "Saved recipe - ") + name);
 
       // Active warning if the recipe's own current selling price is a loss risk.
       if (totals.costPerPiece > 0 && sellingPrice > 0) {
         var pct = (totals.costPerPiece / sellingPrice) * 100;
-        var isLoss = targetPct ? pct > targetPct + 10 : pct > 45;
+        var isLoss = targetPct ? pct > targetPct : pct > 45;
         if (isLoss) {
           toast("Saved \u2014 but heads up: at \u20B1" + sellingPrice.toFixed(2) + ", food cost is " + pct.toFixed(0) + "%. That's a loss risk.");
           setTimeout(function () { window.location.href = "dashboard.html"; }, 2200);
@@ -1910,7 +2095,7 @@
           "<td>" + nameCell + "</td>" +
           "<td>" + (ing.category || "") + "</td>" +
           "<td>" + ing.unit + "</td>" +
-          "<td>\u20B1" + ing.cost_per_unit.toFixed(2) + "</td>" +
+          "<td>\u20B1" + fmtUnitCost(ing.cost_per_unit) + "</td>" +
           "<td>" + Number(ing.stock_qty).toLocaleString() + " " + ing.unit + "</td>" +
           "<td>" + (ing.low_stock_threshold != null ? ing.low_stock_threshold : "\u2014") + "</td>" +
           "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>" +
@@ -1975,8 +2160,11 @@
                   '<div class="field-control"><input type="number" id="restock-price-' + ing.id + '" placeholder="e.g. 1250" min="0" step="0.01"></div>' +
                 '</div>' +
                 '<div class="field-group" style="margin-bottom:0;">' +
-                  '<label>Recipe units per purchase unit</label>' +
-                  '<div class="field-control"><input type="number" id="restock-conversion-' + ing.id + '" value="' + (ing.units_per_purchase || 1) + '" min="0.0001" step="any"></div>' +
+                  '<label>Each ' + escAttr(ing.purchase_unit || "pack") + ' contains</label>' +
+                  '<div style="display:flex;gap:8px;">' +
+                    '<div class="field-control" style="flex:2;"><input type="number" id="restock-pack-size-' + ing.id + '" value="' + (ing.units_per_purchase || 1) + '" min="0.0001" step="any"></div>' +
+                    '<div class="field-control" style="flex:1;"><select id="restock-pack-unit-' + ing.id + '">' + unitOptionsHtml(ing.unit) + '</select></div>' +
+                  '</div>' +
                 '</div>' +
               '</div>' +
               '<div class="btn-row" style="margin-top:16px;">' +
@@ -1992,14 +2180,20 @@
           document.getElementById("restock-save-" + ing.id).addEventListener("click", async function () {
             var qty = parseFloat(document.getElementById("restock-qty-" + ing.id).value);
             var price = parseFloat(document.getElementById("restock-price-" + ing.id).value);
-            var conversion = parseFloat(document.getElementById("restock-conversion-" + ing.id).value) || 1;
+            var packSize = parseFloat(document.getElementById("restock-pack-size-" + ing.id).value);
+            var packFactor = unitFactor(document.getElementById("restock-pack-unit-" + ing.id).value, ing.unit);
+            if (packFactor === null) {
+              toast("That unit can't be converted to " + ing.unit + ". Pick a matching unit (g/kg, ml/L or pc).");
+              return;
+            }
+            var conversion = packSize * packFactor; // recipe units in ONE purchase unit
  
             if (!qty || qty <= 0 || isNaN(price) || price < 0) {
               toast("Enter a quantity purchased and a total price paid.");
               return;
             }
-            if (conversion <= 0) {
-              toast("Recipe units per purchase unit must be greater than 0.");
+            if (!(conversion > 0)) {
+              toast("Enter how much each purchase unit contains (greater than 0).");
               return;
             }
  
@@ -2023,6 +2217,7 @@
               return;
             }
  
+            await recalcRecipesForIngredient(ing.id, newCostPerUnit);
             ing.cost_per_unit = newCostPerUnit;
             ing.stock_qty = newStockQty;
             ing.units_per_purchase = conversion;
@@ -2052,9 +2247,9 @@
           '<td colspan="10">' +
             '<div class="form-row" style="align-items:flex-end;margin:0;flex-wrap:wrap;">' +
               field("Name", "edit-name", "text", ing.name) +
-              field("Category", "edit-category", "text", ing.category || "") +
+              '<div class="field-group" style="margin-bottom:0;"><label>Category</label><div class="field-control"><select id="edit-category-' + ing.id + '">' + categoryOptionsHtml(ing.category || "", !ing.category) + '</select></div></div>' +
               field("Supplier", "edit-supplier", "text", ing.supplier || "") +
-              field("Cost per " + ing.unit + " (\u20B1)", "edit-cost", "number", ing.cost_per_unit, ' min="0" step="any"') +
+              field("Cost per " + ing.unit + " (\u20B1)", "edit-cost", "number", Number(Number(ing.cost_per_unit).toFixed(6)), ' min="0" step="any"') +
               field("Stock (" + ing.unit + ")", "edit-stock", "number", ing.stock_qty, ' min="0" step="any"') +
               field("Low-stock alert", "edit-low", "number", ing.low_stock_threshold != null ? ing.low_stock_threshold : "", ' min="0" step="any"') +
             '</div>' +
@@ -2070,7 +2265,7 @@
 
         document.getElementById("edit-save-" + ing.id).addEventListener("click", async function () {
           var name = document.getElementById("edit-name-" + ing.id).value.trim();
-          var category = document.getElementById("edit-category-" + ing.id).value.trim();
+          var category = document.getElementById("edit-category-" + ing.id).value;
           var supplier = document.getElementById("edit-supplier-" + ing.id).value.trim();
           var cost = parseFloat(document.getElementById("edit-cost-" + ing.id).value);
           var stock = parseFloat(document.getElementById("edit-stock-" + ing.id).value);
@@ -2078,6 +2273,7 @@
           var low = lowRaw === "" ? null : parseFloat(lowRaw);
 
           if (!name) { toast("Ingredient name is required."); return; }
+          if (!category) { toast("Please choose a category."); return; }
           if (isNaN(cost) || cost < 0) { toast("Enter a valid cost per unit."); return; }
           if (isNaN(stock) || stock < 0) { toast("Enter a valid stock quantity."); return; }
           if (low !== null && (isNaN(low) || low < 0)) { toast("Enter a valid low-stock alert level."); return; }
@@ -2087,12 +2283,13 @@
 
           var fields = {
             name: name,
-            category: category || "Uncategorized",
+            category: category,
             supplier: supplier || null,
             cost_per_unit: cost,
             stock_qty: stock,
             low_stock_threshold: low
           };
+          var costChanged = Number(ing.cost_per_unit) !== cost;
           var result = await updateIngredient(ing.id, fields);
 
           if (result.error) {
@@ -2100,6 +2297,7 @@
             toast("Couldn't save changes: " + result.error.message);
             return;
           }
+          if (costChanged) await recalcRecipesForIngredient(ing.id, cost);
 
           ing.name = fields.name;
           ing.category = fields.category;
@@ -2118,6 +2316,7 @@
 
     var addBtn = document.getElementById("show-add-ingredient");
     var addForm = document.getElementById("add-ingredient-form");
+    document.getElementById("ing-category").innerHTML = categoryOptionsHtml("", true);
     addBtn.addEventListener("click", function () {
       addForm.classList.toggle("is-visible");
       if (addForm.classList.contains("is-visible")) addForm.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2128,7 +2327,7 @@
         var el = document.getElementById(id);
         if (el) el.value = "";
       });
-      document.getElementById("ing-conversion").value = "1";
+      resetPackFields();
       updateCostPreview();
       addForm.classList.remove("is-visible");
     });
@@ -2143,10 +2342,22 @@
       var unit = document.getElementById("ing-unit").value || "unit";
       var purchaseUnitRaw = document.getElementById("ing-purchase-unit").value.trim();
       var purchaseUnit = purchaseUnitRaw || unit;
-      var conversion = parseFloat(document.getElementById("ing-conversion").value) || 1;
- 
+      var packSize = parseFloat(document.getElementById("ing-pack-size").value) || 0;
+      var packUnit = document.getElementById("ing-pack-unit").value;
+      var factor = unitFactor(packUnit, unit);
+      var conversion = factor === null ? 0 : packSize * factor;
+      document.getElementById("ing-conversion").value = conversion > 0 ? conversion : "";
+
       var hintEl = document.getElementById("ing-conversion-hint");
-      hintEl.textContent = "Example: 1 " + purchaseUnit + " = " + conversion + " " + unit;
+      hintEl.style.color = "";
+      if (factor === null) {
+        hintEl.textContent = packUnit + " can't be converted to " + unit + ". Pick a matching unit (g/kg, ml/L or pc).";
+        hintEl.style.color = "#9C3B1E";
+      } else {
+        var label = purchaseUnitRaw || "pack";
+        hintEl.textContent = "1 " + label + " = " + packSize + " " + packUnit +
+          (packUnit !== unit ? "  \u2192  " + conversion.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + unit + " in your recipes" : "");
+      }
  
       var purchaseNote = document.getElementById("ing-cost-preview-purchase");
  
@@ -2162,19 +2373,37 @@
         purchaseNote.textContent = "";
       }
     }
-    [qtyInput, priceInput, document.getElementById("ing-unit"), document.getElementById("ing-purchase-unit"), document.getElementById("ing-conversion")].forEach(function (el) {
+    // Pack fields start out matching the recipe unit; keep them compatible when the recipe unit changes.
+    function resetPackFields() {
+      document.getElementById("ing-pack-size").value = "1";
+      document.getElementById("ing-pack-unit").value = document.getElementById("ing-unit").value;
+      document.getElementById("ing-conversion").value = "1";
+    }
+    document.getElementById("ing-unit").addEventListener("change", function () {
+      var u = document.getElementById("ing-unit").value;
+      var packUnitEl = document.getElementById("ing-pack-unit");
+      if (unitFactor(packUnitEl.value, u) === null) packUnitEl.value = u;
+    });
+
+    [qtyInput, priceInput, document.getElementById("ing-unit"), document.getElementById("ing-purchase-unit"), document.getElementById("ing-pack-size"), document.getElementById("ing-pack-unit")].forEach(function (el) {
         el.addEventListener("input", updateCostPreview);
         el.addEventListener("change", updateCostPreview);
       });
 
     document.getElementById("save-ingredient-btn").addEventListener("click", async function () {
       var name = document.getElementById("ing-name").value.trim();
-      var category = document.getElementById("ing-category").value.trim();
+      var category = document.getElementById("ing-category").value;
       var unit = document.getElementById("ing-unit").value;
       var qty = parseFloat(qtyInput.value);
       var totalPrice = parseFloat(priceInput.value);
-      var purchaseUnit = document.getElementById("ing-purchase-unit").value.trim() || unit;
-      var conversion = parseFloat(document.getElementById("ing-conversion").value) || 1;
+      var packSize = parseFloat(document.getElementById("ing-pack-size").value);
+      var packFactor = unitFactor(document.getElementById("ing-pack-unit").value, unit);
+      if (packFactor === null) {
+        toast("Each purchase unit must use a unit that matches the recipe unit (g/kg, ml/L or pc).");
+        return;
+      }
+      var conversion = packSize * packFactor; // recipe units in ONE purchase unit (e.g. 1 sack of 25 kg = 25000 g)
+      var purchaseUnit = document.getElementById("ing-purchase-unit").value.trim() || (conversion === 1 ? unit : "pack");
       var startStockInput = document.getElementById("ing-start-stock").value;
       var startStock = startStockInput !== "" ? parseFloat(startStockInput) : (qty * conversion || 0);
       var lowStockVal = document.getElementById("ing-low-stock").value;
@@ -2183,17 +2412,21 @@
         toast("Fill in ingredient name, quantity purchased, and total price paid.");
         return;
       }
-      if (!conversion || conversion <= 0) {
-        toast("Recipe units per purchase unit must be greater than 0.");
+      if (!category) { toast("Please choose a category."); return; }
+      if (!(conversion > 0)) {
+        toast("Enter how much each purchase unit contains (greater than 0).");
         return;
       }
       var costPerPurchaseUnit = totalPrice / qty;
       var costPerUnit = costPerPurchaseUnit / conversion; // cost per RECIPE unit — this is what recipes use
  
+      var dupIng = ingredients.some(function (i) { return String(i.name || "").trim().toLowerCase() === name.toLowerCase(); });
+      if (dupIng) { toast('"' + name + '" is already in your raw ingredient stock. Edit or restock it instead.'); return; }
+
       var saveBtn = document.getElementById("save-ingredient-btn");
       saveBtn.disabled = true;
       var result = await insertIngredient({
-        name: name, category: category || "Uncategorized", unit: unit,
+        name: name, category: category, unit: unit,
         cost_per_unit: costPerUnit, baseline_cost_per_unit: costPerUnit,
         stock_qty: startStock, low_stock_threshold: lowStockVal === "" ? null : parseFloat(lowStockVal),
         supplier: document.getElementById("ing-supplier").value.trim() || null,
@@ -2210,7 +2443,7 @@
         var el = document.getElementById(id);
         if (el) el.value = "";
       });
-      document.getElementById("ing-conversion").value = "1";
+      resetPackFields();
       updateCostPreview();
       renderIngredientTable();
       addForm.classList.remove("is-visible");
@@ -2224,23 +2457,30 @@
     function renderBreadStock() {
       breadBody.innerHTML = "";
       if (!breadBatches.length) {
-        breadBody.innerHTML = '<tr><td colspan="5" class="empty-note">No bread stock logged yet.</td></tr>';
+        breadBody.innerHTML = '<tr><td colspan="6" class="empty-note">No bread stock logged yet.</td></tr>';
         return;
       }
       // Aggregate by recipe.
       var totals = {};
       breadBatches.forEach(function (b) {
         var name = b.recipes ? b.recipes.name : "Unknown";
-        if (!totals[name]) totals[name] = { baked: 0, sold: 0, lastBaked: b.date_baked };
+        if (!totals[name]) totals[name] = { baked: 0, sold: 0, lastBaked: b.date_baked, batches: [] };
         totals[name].baked += b.quantity_baked;
         totals[name].sold += b.quantity_sold;
         if (new Date(b.date_baked) > new Date(totals[name].lastBaked)) totals[name].lastBaked = b.date_baked;
+      });
+      // Batches (morning / afternoon / evening) logged on each item's most recent baking day.
+      breadBatches.forEach(function (b) {
+        var name = b.recipes ? b.recipes.name : "Unknown";
+        if (b.batch && b.date_baked === totals[name].lastBaked && totals[name].batches.indexOf(b.batch) === -1) {
+          totals[name].batches.push(b.batch);
+        }
       });
       Object.keys(totals).forEach(function (name) {
         var t = totals[name];
         var remaining = Math.max(0, t.baked - t.sold);
         var tr = document.createElement("tr");
-        tr.innerHTML = "<td>" + name + "</td><td>" + t.baked + " pcs</td><td>" + t.sold + " pcs</td><td>" + remaining + " pcs</td><td>" + new Date(t.lastBaked).toLocaleDateString() + "</td>";
+        tr.innerHTML = "<td>" + name + "</td><td>" + t.baked + " pcs</td><td>" + t.sold + " pcs</td><td>" + remaining + " pcs</td><td>" + new Date(t.lastBaked).toLocaleDateString() + "</td><td>" + (t.batches.length ? t.batches.join(", ") : "\u2014") + "</td>";
         breadBody.appendChild(tr);
       });
     }
@@ -2332,7 +2572,7 @@
 
       var saveBtn = document.getElementById("save-bread-stock-btn");
       saveBtn.disabled = true;
-      var result = await insertBreadBatch(recipe.id, qty, consumed);
+      var result = await insertBreadBatch(recipe.id, qty, consumed, document.getElementById("bs-batch").value);
       saveBtn.disabled = false;
 
       if (result.error) { toast("Couldn't save: " + result.error.message); return; }
@@ -2382,22 +2622,28 @@
     if (!body) return;
 
     async function renderAccounts() {
-      var result = await supabaseClient.from("profiles").select("*").order("full_name");
+      var result = await supabaseClient.from("profiles").select("*");
       if (result.error) {
         console.error("renderAccounts error:", result.error);
-        body.innerHTML = '<tr><td colspan="5" class="empty-note">Couldn\'t load accounts: ' + result.error.message + '</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="empty-note">Couldn\'t load accounts: ' + result.error.message + '</td></tr>';
         return;
       }
-      var accounts = result.data || [];
+      var accounts = (result.data || []).slice().sort(function (a, b) {
+        var an = nameOf(a), bn = nameOf(b);
+        return (an.last + " " + an.first).toLowerCase().localeCompare((bn.last + " " + bn.first).toLowerCase());
+      });
       body.innerHTML = "";
       if (!accounts.length) {
-        body.innerHTML = '<tr><td colspan="5" class="empty-note">No accounts yet.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="empty-note">No accounts yet.</td></tr>';
         return;
       }
       accounts.forEach(function (acc) {
         var tr = document.createElement("tr");
+        var nm = nameOf(acc);
         tr.innerHTML =
-          "<td>" + acc.full_name + "</td>" +
+          "<td>" + escAttr(nm.last) + "</td>" +
+          "<td>" + escAttr(nm.first) + "</td>" +
+          "<td>" + (nm.middle ? escAttr(nm.middle) : "\u2014") + "</td>" +
           "<td>" + acc.role + "</td>" +
           "<td>" + acc.email + "</td>" +
           '<td><span class="status-pill">' + acc.status + '</span></td>' +
@@ -2438,6 +2684,30 @@
      Admin — invite account (invite-account.html)
      ======================================================================= */
 
+  /* ---- Account emails (invite / create) ----
+     These use a SEPARATE, throw-away Supabase client that never stores a session,
+     so sending an email or creating an account for someone else can never log
+     the Super Admin out or swap them into the new user's session. */
+  function makeTempClient() {
+    return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
+  }
+  function siteUrl(file) {
+    return window.location.origin + window.location.pathname.replace(/[^\/]*$/, "") + file;
+  }
+  function generatePassword() {
+    var sets = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%&*?"];
+    var all = sets.join("");
+    var arr = new Uint32Array(14);
+    (window.crypto || window.msCrypto).getRandomValues(arr);
+    var out = sets.map(function (set, i) { return set[arr[i] % set.length]; });
+    for (var i = sets.length; i < arr.length; i++) out.push(all[arr[i] % all.length]);
+    // shuffle
+    for (var j = out.length - 1; j > 0; j--) { var k = arr[j] % (j + 1); var tmp = out[j]; out[j] = out[k]; out[k] = tmp; }
+    return out.join("");
+  }
+
   function initInviteAccountPage() {
     var sendBtn = document.getElementById("send-invite-btn");
     if (!sendBtn) return;
@@ -2455,9 +2725,8 @@
     });
 
     sendBtn.addEventListener("click", async function () {
-      var name = document.getElementById("invite-name").value.trim();
       var email = document.getElementById("invite-email").value.trim();
-      if (!name || !isValidEmail(email)) { toast("Enter a name and a valid email."); return; }
+      if (!isValidEmail(email)) { toast("Enter a valid email address."); return; }
 
       sendBtn.disabled = true;
 
@@ -2474,27 +2743,50 @@
         return;
       }
 
+      // The invite record carries the role. The person's real name is entered by
+      // them later, so the email address stands in as a placeholder name.
       var insertResult = await supabaseClient.from("invites").insert({
-        email: email, full_name: name, role: selectedRole, status: "Pending"
+        email: email, full_name: email, role: selectedRole, status: "Pending"
       }).select().single();
 
-      sendBtn.disabled = false;
-
       if (insertResult.error) {
+        sendBtn.disabled = false;
         toast("Couldn't create the invite: " + insertResult.error.message);
         return;
       }
+      var inviteId = insertResult.data.id;
 
-      await logActivitySupa("Invited account - " + name + " (" + selectedRole + ")");
+      // Email them a confirmation link. Opening it confirms their email and brings
+      // them to our sign-up page ("?setup=1"), where they add their name + password.
+      var mail = await makeTempClient().auth.signInWithOtp({
+        email: email,
+        options: {
+          emailRedirectTo: siteUrl("signup.html?setup=1"),
+          shouldCreateUser: true,
+          data: { full_name: email, account_setup_done: false }
+        }
+      });
 
-      var basePath = window.location.pathname.replace(/[^/]*$/, "");
-      var link = window.location.origin + basePath + "signup.html?invite=" + insertResult.data.id;
+      sendBtn.disabled = false;
+
+      if (mail.error) {
+        // Roll the invite back so the person can be invited again after the problem is fixed.
+        await supabaseClient.from("invites").delete().eq("id", inviteId);
+        toast("Couldn't send the email: " + mail.error.message);
+        return;
+      }
+
+      await logActivitySupa("Invited account - " + email + " (" + selectedRole + ")");
+
+      var link = siteUrl("signup.html?invite=" + inviteId);
+      var resultText = document.getElementById("invite-result-text");
+      if (resultText) resultText.textContent = "We emailed a confirmation link to " + email + ". Once they click it, they'll be brought to DRR Bakery to enter their name and set a password.";
 
       if (formSection) formSection.style.display = "none";
       if (resultSection) resultSection.classList.add("is-visible");
       if (linkInput) linkInput.value = link;
 
-      toast(name + " invited as " + selectedRole + ". Share the link below with them.");
+      toast("Invitation emailed to " + email + ".");
     });
 
     var copyBtn = document.getElementById("copy-invite-link-btn");
@@ -2512,11 +2804,125 @@
   }
 
   /* =======================================================================
+     Admin — create account (create-account.html)
+     The Super Admin fills in everything and sets the first password. The new
+     user is emailed a link to confirm their email address, then logs in.
+     ======================================================================= */
+
+  function initCreateAccountPage() {
+    var btn = document.getElementById("create-account-btn");
+    if (!btn) return;
+    var selectedRole = "Staff";
+    var formSection = document.getElementById("create-form-section");
+    var resultSection = document.getElementById("create-result-section");
+    var form = formSection;
+
+    document.querySelectorAll("#create-role-toggle .chip").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        document.querySelectorAll("#create-role-toggle .chip").forEach(function (c) { c.classList.remove("active"); });
+        chip.classList.add("active");
+        selectedRole = chip.getAttribute("data-role");
+      });
+    });
+
+    var genLink = document.getElementById("create-generate-pw");
+    if (genLink) {
+      genLink.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pw = generatePassword();
+        var input = document.getElementById("create-password");
+        input.value = pw;
+        input.type = "text"; // show it so the Super Admin can pass it on
+        toast("Password generated. Copy it before you create the account.");
+      });
+    }
+
+    btn.addEventListener("click", async function () {
+      clearAllFieldErrors(form);
+      var first = document.getElementById("create-first-name").value.trim();
+      var middle = document.getElementById("create-middle-name").value.trim();
+      var last = document.getElementById("create-last-name").value.trim();
+      var email = document.getElementById("create-email").value.trim();
+      var password = document.getElementById("create-password").value;
+      var hasError = false;
+
+      if (!first) { setFieldError("create-first-name", "First name is required."); hasError = true; }
+      if (!last) { setFieldError("create-last-name", "Last name is required."); hasError = true; }
+      if (!email) { setFieldError("create-email", "Email is required."); hasError = true; }
+      else if (!isValidEmail(email)) { setFieldError("create-email", "Enter a valid email address."); hasError = true; }
+      if (!password) { setFieldError("create-password", "Password is required."); hasError = true; }
+      else if (!isValidPassword(password)) { setFieldError("create-password", "Use at least 8 characters, with an uppercase letter, a lowercase letter, a number, and a symbol."); hasError = true; }
+      if (hasError) return;
+
+      btn.disabled = true;
+
+      var existingProfile = await supabaseClient.from("profiles").select("id").ilike("email", email).maybeSingle();
+      if (existingProfile.data) {
+        btn.disabled = false;
+        setFieldError("create-email", "An account with this email already exists.");
+        return;
+      }
+      var existingInvite = await supabaseClient.from("invites").select("id").ilike("email", email).eq("status", "Pending").maybeSingle();
+      if (existingInvite.data) {
+        btn.disabled = false;
+        setFieldError("create-email", "This email already has a pending invite. Delete it or ask them to use it.");
+        return;
+      }
+
+      var fullName = joinName(first, middle, last);
+
+      // 1) Record the role as an invite for this email. The database's sign-up
+      //    step reads it to give the new account the right role.
+      var inviteResult = await supabaseClient.from("invites").insert({
+        email: email, full_name: fullName, role: selectedRole, status: "Pending"
+      }).select().single();
+      if (inviteResult.error) {
+        btn.disabled = false;
+        toast("Couldn't create the account: " + inviteResult.error.message);
+        return;
+      }
+
+      // 2) Create the login. Supabase emails them to confirm their address.
+      var signUp = await makeTempClient().auth.signUp({
+        email: email,
+        password: password,
+        options: {
+          emailRedirectTo: siteUrl("index.html"),
+          data: { full_name: fullName, first_name: first, middle_name: middle, last_name: last, account_setup_done: true }
+        }
+      });
+
+      btn.disabled = false;
+
+      var alreadyRegistered = signUp.data && signUp.data.user && signUp.data.user.identities && signUp.data.user.identities.length === 0;
+      if (signUp.error || alreadyRegistered) {
+        await supabaseClient.from("invites").delete().eq("id", inviteResult.data.id);
+        toast("Couldn't create the account: " + (signUp.error ? signUp.error.message : "that email is already registered."));
+        return;
+      }
+
+      await logActivitySupa("Created account - " + fullName + " (" + selectedRole + ")");
+
+      var needsConfirm = !(signUp.data && signUp.data.session);
+      var resultText = document.getElementById("create-result-text");
+      if (resultText) {
+        resultText.textContent = fullName + "'s " + selectedRole + " account was created. " +
+          (needsConfirm
+            ? "We emailed " + email + " a link to confirm their email address. After confirming, they can log in with the password you set \u2014 share it with them privately."
+            : "They can log in right away with the password you set \u2014 share it with them privately.");
+      }
+      if (formSection) formSection.style.display = "none";
+      if (resultSection) resultSection.classList.add("is-visible");
+      toast("Account created for " + fullName + ".");
+    });
+  }
+
+  /* =======================================================================
      Admin — edit account (edit-account.html)
      ======================================================================= */
 
   function initEditAccountPage() {
-    var nameInput = document.getElementById("edit-account-name");
+    var nameInput = document.getElementById("edit-account-first-name");
     if (!nameInput) return;
 
     var id = new URLSearchParams(window.location.search).get("id");
@@ -2541,11 +2947,22 @@
       }
 
       document.getElementById("edit-account-id").value = acc.id;
-      nameInput.value = acc.full_name;
+      var accName = nameOf(acc);
+      nameInput.value = accName.first;
+      document.getElementById("edit-account-middle-name").value = accName.middle;
+      document.getElementById("edit-account-last-name").value = accName.last;
+      ["edit-account-first-name", "edit-account-middle-name", "edit-account-last-name", "edit-account-email"].forEach(function (fid) {
+        var f = document.getElementById(fid);
+        f.setAttribute("readonly", "readonly");
+        f.setAttribute("aria-readonly", "true");
+      });
       document.getElementById("edit-account-email").value = acc.email;
       setStatusUI(acc.status === "Active" ? "Active" : "Inactive");
 
       var isSuperAdmin = acc.role === "Super Admin";
+      // Role and status are only chosen here; nothing is written until "Save changes" is clicked.
+      var pendingRole = acc.role;
+      var pendingStatus = acc.status === "Active" ? "Active" : "Inactive";
       var superAdminSection = document.getElementById("super-admin-section");
       var deleteBtn = document.getElementById("delete-account-btn");
       var deactivateBtn = document.getElementById("deactivate-account-btn");
@@ -2561,25 +2978,26 @@
         });
         deleteBtn.setAttribute("disabled", "disabled");
         deactivateBtn.setAttribute("disabled", "disabled");
+        // The Super Admin account must always stay Active.
+        setStatusUI("Active");
+        document.querySelectorAll("#edit-status-toggle .chip").forEach(function (chip) {
+          chip.setAttribute("disabled", "disabled");
+          chip.setAttribute("aria-disabled", "true");
+        });
 
         superAdminSection.innerHTML =
           '<div class="locked-notice">' +
           '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 11V8a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.8"/></svg>' +
-          '<span>This is the Super Admin account. There can only be one Super Admin, so its role can\'t be changed and it can\'t be deleted or deactivated here. To hand off ownership, go to a different Admin or Staff member\'s Edit page and click <strong>Super Admin</strong> there \u2014 they become Super Admin and this account automatically switches to Admin.</span>' +
+          '<span><strong>This is the Super Admin account.</strong> It is the owner of the system, so it always stays <strong>Active</strong> and its role can\'t be changed, deactivated or deleted. There can only be one Super Admin. To give ownership to someone else, open that person\'s Edit page and click <strong>Super Admin</strong>. They will become the Super Admin, and this account will become an Admin.</span>' +
           '</div>';
       } else {
         superAdminSection.innerHTML = "";
         setRoleUI(acc.role);
 
         document.querySelectorAll("#edit-role-toggle .chip[data-role='Admin'], #edit-role-toggle .chip[data-role='Staff']").forEach(function (chip) {
-          chip.addEventListener("click", async function () {
-            var role = chip.getAttribute("data-role");
-            var updateResult = await supabaseClient.from("profiles").update({ role: role }).eq("id", acc.id);
-            if (updateResult.error) { toast("Couldn't update role: " + updateResult.error.message); return; }
-            acc.role = role;
-            setRoleUI(role);
-            await logActivitySupa("Updated account role - " + acc.full_name + " (" + role + ")");
-            toast(acc.full_name + "'s role set to " + role + ".");
+          chip.addEventListener("click", function () {
+            pendingRole = chip.getAttribute("data-role");
+            setRoleUI(pendingRole);
           });
         });
 
@@ -2622,14 +3040,10 @@
       }
 
       document.querySelectorAll("#edit-status-toggle .chip").forEach(function (chip) {
-        chip.addEventListener("click", async function () {
-          var status = chip.getAttribute("data-status") === "Active" ? "Active" : "Inactive";
-          var updateResult = await supabaseClient.from("profiles").update({ status: status }).eq("id", acc.id);
-          if (updateResult.error) { toast("Couldn't update status: " + updateResult.error.message); return; }
-          acc.status = status;
-          setStatusUI(status);
-          await logActivitySupa("Updated account status - " + acc.full_name + " (" + status + ")");
-          toast(acc.full_name + "'s status set to " + status + ".");
+        chip.addEventListener("click", function () {
+          if (isSuperAdmin) return; // Super Admin status is locked
+          pendingStatus = chip.getAttribute("data-status") === "Active" ? "Active" : "Inactive";
+          setStatusUI(pendingStatus);
         });
       });
 
@@ -2637,6 +3051,7 @@
         var updateResult = await supabaseClient.from("profiles").update({ status: "Inactive" }).eq("id", acc.id);
         if (updateResult.error) { toast("Couldn't deactivate: " + updateResult.error.message); return; }
         acc.status = "Inactive";
+        pendingStatus = "Inactive";
         setStatusUI("Inactive");
         await logActivitySupa("Deactivated account - " + acc.full_name);
         toast(acc.full_name + " has been deactivated.");
@@ -2650,6 +3065,37 @@
         toast(acc.full_name + "'s account was deleted.");
         setTimeout(function () { window.location.href = "admin.html"; }, 600);
       });
+
+      var saveAccountBtn = document.getElementById("save-account-btn");
+      if (isSuperAdmin) {
+        // Nothing on the Super Admin account can be changed here.
+        saveAccountBtn.setAttribute("disabled", "disabled");
+      }
+      saveAccountBtn.addEventListener("click", async function () {
+        var changes = {};
+        var currentStatus = acc.status === "Active" ? "Active" : "Inactive";
+        if (pendingRole !== acc.role) changes.role = pendingRole;
+        if (pendingStatus !== currentStatus) changes.status = pendingStatus;
+        if (!Object.keys(changes).length) { toast("No changes to save."); return; }
+
+        saveAccountBtn.disabled = true;
+        var saveResult = await supabaseClient.from("profiles").update(changes).eq("id", acc.id);
+        if (saveResult.error) {
+          saveAccountBtn.disabled = false;
+          toast("Couldn't save changes: " + saveResult.error.message);
+          return;
+        }
+        if (changes.role) {
+          acc.role = changes.role;
+          await logActivitySupa("Updated account role - " + acc.full_name + " (" + changes.role + ")");
+        }
+        if (changes.status) {
+          acc.status = changes.status;
+          await logActivitySupa("Updated account status - " + acc.full_name + " (" + changes.status + ")");
+        }
+        toast("Changes saved for " + acc.full_name + ".");
+        setTimeout(function () { window.location.href = "admin.html"; }, 900);
+      });
     }
 
     load();
@@ -2662,6 +3108,7 @@
   function initProfilePage() {
     var firstNameInput = document.getElementById("profile-first-name");
     if (!firstNameInput) return;
+    var middleNameInput = document.getElementById("profile-middle-name");
     var lastNameInput = document.getElementById("profile-last-name");
 
     var session = getSession();
@@ -2680,10 +3127,11 @@
       var profileResult = await supabaseClient.from("profiles").select("*").eq("email", session.email).maybeSingle();
       var profile = profileResult.data;
 
-      // The name is stored as one full name; show it split into first / last (read-only).
-      var nameParts = String(profile ? profile.full_name : session.firstName).trim().split(/\s+/);
-      firstNameInput.value = nameParts[0] || "";
-      lastNameInput.value = nameParts.slice(1).join(" ");
+      // Show the name split into first / middle / last (read-only).
+      var myName = profile ? nameOf(profile) : { first: session.firstName, middle: "", last: "" };
+      firstNameInput.value = myName.first;
+      if (middleNameInput) middleNameInput.value = myName.middle;
+      lastNameInput.value = myName.last;
       document.getElementById("profile-email").value = session.email;
       document.getElementById("profile-role").value = profile ? profile.role : "Staff";
 
@@ -2890,7 +3338,7 @@
 
     function ensure(y, need) { if (y + need > H - BODY_BOTTOM) { doc.addPage(); return BODY_TOP; } return y; }
     function sectionTitle(text, y) {
-      y = ensure(y, 90);
+      y = ensure(y, 150);
       doc.setFont("times", "bold"); doc.setFontSize(13); setC(CRUST);
       doc.text(text, M, y);
       doc.setDrawColor(WHEAT_LINE[0], WHEAT_LINE[1], WHEAT_LINE[2]); doc.setLineWidth(0.8); doc.line(M, y + 8, W - M, y + 8);
@@ -2999,16 +3447,87 @@
     }));
     y = doc.lastAutoTable.finalY + 30;
 
-    // ---- 3. Sales performance ----
-    y = sectionTitle("3.  Sales Performance", y);
-    doc.autoTable(Object.assign({}, tableBase, {
-      startY: y,
-      body: [["Best Selling", bestText], ["Lowest Selling", lowText]],
-      alternateRowStyles: {},
-      styles: Object.assign({}, tableBase.styles, { fontSize: 10 }),
-      columnStyles: { 0: { fontStyle: "bold", cellWidth: 130, textColor: CRUST, fillColor: FIELD } }
-    }));
-    y = doc.lastAutoTable.finalY + 14;
+    // ---- 3. Sales vs production cost by period (table form of the analytics chart) ----
+    y = sectionTitle("3.  Sales vs Production Cost", y);
+    var byHour = false, byMonth = rangeKey === "all";
+    var periods = {}, periodOrder = [];
+    sales.slice().sort(function (a, b) { return new Date(a.sale_datetime) - new Date(b.sale_datetime); }).forEach(function (sl) {
+      var dt = new Date(sl.sale_datetime), key, label;
+      if (byHour) { key = dt.getFullYear() + "-" + dt.getMonth() + "-" + dt.getDate() + "-" + dt.getHours(); label = dt.toLocaleTimeString("en-US", { hour: "numeric" }); }
+      else if (byMonth) { key = dt.getFullYear() + "-" + dt.getMonth(); label = dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }); }
+      else { key = dt.getFullYear() + "-" + dt.getMonth() + "-" + dt.getDate(); label = dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+      var p = periods[key];
+      if (!p) { p = periods[key] = { label: label, qty: 0, rev: 0, cost: 0 }; periodOrder.push(key); }
+      p.qty += sl.quantity; p.rev += sl.total_amount; p.cost += sl.food_cost;
+    });
+    // Show every day of a 7 / 30-day range (zero when nothing sold) so the table matches the selected range.
+    var spanDays = rangeKey === "7days" ? 7 : (rangeKey === "30days" ? 30 : (rangeKey === "today" ? 1 : 0));
+    for (var di = spanDays - 1; di >= 0; di--) {
+      var dd = new Date(); dd.setDate(dd.getDate() - di);
+      var dkey = dd.getFullYear() + "-" + dd.getMonth() + "-" + dd.getDate();
+      if (!periods[dkey]) {
+        periods[dkey] = { label: dd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), qty: 0, rev: 0, cost: 0 };
+      }
+    }
+    if (spanDays) {
+      periodOrder = [];
+      for (var dj = spanDays - 1; dj >= 0; dj--) {
+        var d2 = new Date(); d2.setDate(d2.getDate() - dj);
+        periodOrder.push(d2.getFullYear() + "-" + d2.getMonth() + "-" + d2.getDate());
+      }
+    }
+    if (periodOrder.length) {
+      doc.autoTable(Object.assign({}, tableBase, {
+        startY: y,
+        head: [[byMonth ? "Month" : "Date", "Pieces Sold", "Sales", "Production Cost", "Profit"]],
+        body: periodOrder.map(function (k) {
+          var p = periods[k];
+          return [p.label, p.qty.toLocaleString("en-US"), money(p.rev), money(p.cost), money(p.rev - p.cost)];
+        }).concat([["Total", units.toLocaleString("en-US"), money(totalSales), money(totalCost), money(gross)]]),
+        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+        didParseCell: function (d) {
+          alignHead(d, [1, 2, 3, 4], []);
+          if (d.section === "body" && d.row.index === periodOrder.length) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = BUTTER; }
+        }
+      }));
+      y = doc.lastAutoTable.finalY;
+    } else {
+      doc.setFont(F.text, "normal"); doc.setFontSize(10); setC(MOCHA);
+      doc.text("No sales recorded in this period.", M, y + 4); y += 10;
+    }
+    y += 30;
+
+    // ---- 4. Sales performance ----
+    y = sectionTitle("4.  Sales Performance", y);
+    var allQty = {};
+    recipes.forEach(function (r) { allQty[r.name] = 0; });
+    names.forEach(function (n) { allQty[n] = byItem[n]; });
+    var ranked = Object.keys(allQty).sort(function (a, b) { return allQty[b] - allQty[a]; });
+    function rankTable(title, list) {
+      y = ensure(y, 40 + list.length * 24);
+      doc.setFont(F.text, "bold"); doc.setFontSize(9.5); setC(CRUST);
+      doc.text(title, M, y); y += 8;
+      doc.autoTable(Object.assign({}, tableBase, {
+        startY: y,
+        head: [["Rank", "Bread", "Pieces Sold", "Share of Sales", "Revenue"]],
+        body: list.map(function (n, i) {
+          var d = detail[n] || { rev: 0 };
+          return [i + 1, n, allQty[n].toLocaleString("en-US"), units ? (allQty[n] / units * 100).toFixed(1) + "%" : "0.0%", money(d.rev)];
+        }),
+        columnStyles: { 0: { cellWidth: 36, halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+        didParseCell: function (d) { alignHead(d, [2, 3, 4], [0]); }
+      }));
+      y = doc.lastAutoTable.finalY + 18;
+    }
+    if (sales.length && ranked.length) {
+      rankTable("Best Selling Bread (Top 5)", ranked.slice(0, 5));
+      rankTable("Lowest Selling Bread (Bottom 5)", ranked.slice().reverse().slice(0, 5));
+    } else {
+      doc.setFont(F.text, "normal"); doc.setFontSize(10); setC(MOCHA);
+      doc.text("No sales recorded in this period.", M, y + 4); y += 24;
+    }
+    doc.setFont(F.text, "bold"); doc.setFontSize(9.5); setC(CRUST);
+    if (names.length) { y = ensure(y, 60); doc.text("Sales by Item", M, y); y += 8; }
 
     if (names.length) {
       doc.autoTable(Object.assign({}, tableBase, {
@@ -3025,14 +3544,19 @@
     }
     y += 30;
 
-    // ---- 4. Profitability ranking ----
+    // ---- 5. Profitability ranking ----
     var rows = recipes.map(function (r) {
       var profit = (r.selling_price || 0) - r.cost_per_piece;
       var mg = r.selling_price ? (profit / r.selling_price) * 100 : 0;
       return { name: r.name, cost: r.cost_per_piece, price: r.selling_price || 0, profit: profit, margin: mg };
     }).sort(function (a, b) { return b.margin - a.margin; });
 
-    y = sectionTitle("4.  Bread Profitability Ranking", y);
+    y = sectionTitle("5.  Bread Profitability Ranking", y);
+    if (rows.length) {
+      doc.setFont(F.text, "italic"); doc.setFontSize(8.5); setC(MOCHA);
+      doc.text("All breads are listed, ranked by profit margin. The five most profitable breads are highlighted.", M, y - 6);
+      y += 6;
+    }
     doc.autoTable(Object.assign({}, tableBase, {
       startY: y,
       head: [["No.", "Bread Name", "Unit Cost", "Selling Price", "Profit", "Margin", "Status"]],
@@ -3042,6 +3566,7 @@
       columnStyles: { 0: { cellWidth: 32, halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "center", fontStyle: "bold" } },
       didParseCell: function (d) {
         alignHead(d, [2, 3, 4, 5], [0, 6]);
+        if (d.section === "body" && d.row.index < 5) { d.cell.styles.fillColor = [250, 233, 196]; if (d.column.index === 1) d.cell.styles.fontStyle = "bold"; }
         if (d.section === "body" && d.column.index === 6) d.cell.styles.textColor = d.cell.raw === "High Profit" ? GOOD : BAD;
       }
     }));
@@ -3053,7 +3578,7 @@
     y += 30;
 
     // ---- 5. Notes ----
-    y = sectionTitle("5.  Notes", y);
+    y = sectionTitle("6.  Notes", y);
     var notes = [
       "All amounts are expressed in Philippine Pesos (PHP).",
       "Net profit is presented equal to gross profit; no operating expenses are deducted in this report.",
@@ -3125,26 +3650,6 @@
       document.getElementById("stat-net-profit").textContent = "\u20B1 " + gross.toFixed(0);
     }
 
-    function renderBestLowest(sales) {
-      var byItem = {};
-      sales.forEach(function (s) {
-        var name = s.recipes ? s.recipes.name : "Unknown";
-        byItem[name] = (byItem[name] || 0) + s.quantity;
-      });
-      var names = Object.keys(byItem);
-      var bestEl = document.getElementById("best-selling-text");
-      var lowEl = document.getElementById("lowest-selling-text");
-      if (!names.length) {
-        bestEl.textContent = "No sales in this range yet.";
-        lowEl.textContent = "No sales in this range yet.";
-        return;
-      }
-      names.sort(function (a, b) { return byItem[b] - byItem[a]; });
-      bestEl.textContent = names[0] + " \u2014 " + byItem[names[0]] + " pcs sold";
-      var worst = names[names.length - 1];
-      lowEl.textContent = worst + " \u2014 " + byItem[worst] + " pcs sold";
-    }
-
     function renderRanking() {
       var tbody = document.getElementById("ranking-body");
       tbody.innerHTML = "";
@@ -3160,20 +3665,305 @@
 
       rows.forEach(function (r, i) {
         var tr = document.createElement("tr");
+        if (i < 5) tr.className = "top-five";
         var status = r.margin >= 50 ? '<span class="status-text good">High Profit</span>' : '<span class="status-text bad">Low Profit</span>';
         tr.innerHTML =
-          "<td>" + (i + 1) + "</td><td>" + r.name + "</td>" +
+          "<td>" + (i + 1) + "</td><td>" + r.name + (i < 5 ? ' <span class="top-badge">Top 5</span>' : "") + "</td>" +
           "<td>\u20B1" + r.cost.toFixed(2) + "</td><td>\u20B1" + r.price.toFixed(2) + "</td>" +
           "<td>\u20B1" + r.profit.toFixed(2) + "</td><td>" + r.margin.toFixed(1) + "%</td><td>" + status + "</td>";
         tbody.appendChild(tr);
       });
     }
 
+
+    /* ---- Charts (inline SVG, brand colours) ---- */
+    var C_SALES = "#C1662F", C_COST = "#2878A8", C_GOOD = "#3E6B2E", C_BAD = "#9C3B1E";
+    var C_INK = "#3E2723", C_MUTED = "#8B7355", C_GRID = "#DCCBAE";
+    var tipEl = document.getElementById("chart-tip");
+
+    function peso(n) { return "₱" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
+    function niceMax(v) {
+      if (v <= 0) return 1;
+      var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+      var f = v / p;
+      var n = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+      return n * p;
+    }
+    function svgEsc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+    // Bar with rounded top corners (4px), flat on the baseline.
+    function barPath(x, y, w, h, r) {
+      if (h <= 0) return "";
+      r = Math.min(r, w / 2, h);
+      return "M" + x + "," + (y + h) + "V" + (y + r) + "Q" + x + "," + y + " " + (x + r) + "," + y + "H" + (x + w - r) + "Q" + (x + w) + "," + y + " " + (x + w) + "," + (y + r) + "V" + (y + h) + "Z";
+    }
+    function hBarPath(x, y, w, h, r) {
+      if (w <= 0) return "";
+      r = Math.min(r, h / 2, w);
+      return "M" + x + "," + y + "H" + (x + w - r) + "Q" + (x + w) + "," + y + " " + (x + w) + "," + (y + r) + "V" + (y + h - r) + "Q" + (x + w) + "," + (y + h) + " " + (x + w - r) + "," + (y + h) + "H" + x + "Z";
+    }
+    function showTip(e, html) {
+      if (!tipEl) return;
+      tipEl.innerHTML = html;
+      tipEl.classList.add("is-visible");
+      var x = e.clientX + 14, y = e.clientY + 14;
+      var w = tipEl.offsetWidth, hgt = tipEl.offsetHeight;
+      if (x + w > window.innerWidth - 8) x = e.clientX - w - 14;
+      if (y + hgt > window.innerHeight - 8) y = e.clientY - hgt - 14;
+      tipEl.style.left = x + "px"; tipEl.style.top = y + "px";
+    }
+    function hideTip() { if (tipEl) tipEl.classList.remove("is-visible"); }
+    function wireTips(container) {
+      container.querySelectorAll("[data-tip]").forEach(function (g) {
+        g.addEventListener("mousemove", function (e) { showTip(e, g.getAttribute("data-tip")); });
+        g.addEventListener("mouseleave", hideTip);
+        g.addEventListener("focus", function () {
+          var r = g.getBoundingClientRect();
+          showTip({ clientX: r.left + r.width / 2, clientY: r.top }, g.getAttribute("data-tip"));
+        });
+        g.addEventListener("blur", hideTip);
+      });
+    }
+    function emptyChart(el, msg) { el.innerHTML = '<p class="chart-empty">' + msg + '</p>'; }
+
+    /* Sales vs cost chart: has its own range (Daily / Weekly / Monthly / Yearly),
+       independent of the date filter at the top of the page. */
+    var trendMode = "monthly";
+    var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    var MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+    function trendBuckets(mode) {
+      var now = new Date(), list = [], i, d;
+      if (mode === "daily") {
+        for (i = 6; i >= 0; i--) {
+          d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+          list.push({ start: d, end: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1), label: MONTHS[d.getMonth()] + " " + d.getDate(),
+                      full: d.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" }) });
+        }
+      } else if (mode === "weekly") {
+        var dow = (now.getDay() + 6) % 7; // Monday = 0
+        var thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow);
+        for (i = 7; i >= 0; i--) {
+          d = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - i * 7);
+          var e = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7);
+          var last = new Date(e.getFullYear(), e.getMonth(), e.getDate() - 1);
+          list.push({ start: d, end: e, label: MONTHS[d.getMonth()] + " " + d.getDate(),
+                      full: "Week of " + MONTHS[d.getMonth()] + " " + d.getDate() + " – " + MONTHS[last.getMonth()] + " " + last.getDate() });
+        }
+      } else if (mode === "yearly") {
+        for (i = 4; i >= 0; i--) {
+          var y = now.getFullYear() - i;
+          list.push({ start: new Date(y, 0, 1), end: new Date(y + 1, 0, 1), label: String(y), full: String(y) });
+        }
+      } else { // monthly: the last 12 months, oldest to newest
+        for (i = 11; i >= 0; i--) {
+          d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          var showYear = i === 11 || d.getMonth() === 0;
+          list.push({ start: d, end: new Date(d.getFullYear(), d.getMonth() + 1, 1),
+                      label: MONTHS[d.getMonth()] + (showYear ? " '" + String(d.getFullYear()).slice(2) : ""),
+                      full: MONTHS_LONG[d.getMonth()] + " " + d.getFullYear() });
+        }
+      }
+      list.forEach(function (b) { b.sales = 0; b.cost = 0; b.pcs = 0; });
+      return list;
+    }
+
+    async function fetchSalesBetween(startDate) {
+      var rows = [], from = 0, page = 1000;
+      for (var n = 0; n < 30; n++) {
+        var res = await supabaseClient.from("sales").select("total_amount, food_cost, quantity, sale_datetime")
+          .gte("sale_datetime", startDate.toISOString()).order("sale_datetime", { ascending: true }).range(from, from + page - 1);
+        if (res.error || !res.data) break;
+        rows = rows.concat(res.data);
+        if (res.data.length < page) break;
+        from += page;
+      }
+      return rows;
+    }
+
+    var trendLoadId = 0;
+    async function loadTrendChart(mode) {
+      var el = document.getElementById("chart-trend");
+      if (!el) return;
+      trendMode = mode;
+      var myLoad = ++trendLoadId;
+      document.querySelectorAll("#chart-trend-tabs button").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-mode") === mode);
+      });
+      var titles = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" };
+      var subs = { daily: "Last 7 days", weekly: "Last 8 weeks (weeks start Monday)", monthly: "Last 12 months", yearly: "Last 5 years" };
+      var titleEl = document.getElementById("chart-trend-title");
+      if (titleEl) titleEl.textContent = "Sales vs Production Cost (" + titles[mode] + ")";
+      var subEl = document.getElementById("chart-trend-sub");
+      if (subEl) subEl.textContent = subs[mode];
+
+      var buckets = trendBuckets(mode);
+      var rows;
+      try { rows = await fetchSalesBetween(buckets[0].start); }
+      catch (err) { if (myLoad === trendLoadId) emptyChart(el, "Couldn't load the chart. Try again."); return; }
+      if (myLoad !== trendLoadId) return; // a newer click superseded this one
+      rows.forEach(function (s) {
+        var d = new Date(s.sale_datetime);
+        if (isNaN(d)) return;
+        for (var i = 0; i < buckets.length; i++) {
+          if (d >= buckets[i].start && d < buckets[i].end) {
+            buckets[i].sales += s.total_amount; buckets[i].cost += s.food_cost; buckets[i].pcs += s.quantity;
+            break;
+          }
+        }
+      });
+      renderTrendChart(buckets);
+    }
+
+    function renderTrendChart(data) {
+      var el = document.getElementById("chart-trend");
+      if (!el) return;
+      var any = data.some(function (d) { return d.sales > 0 || d.cost > 0; });
+      if (!any) { emptyChart(el, "No sales recorded in this period yet."); return; }
+
+      var W = 520, H = 250, L = 56, R = 10, T = 12, B = 32;
+      var pw = W - L - R, ph = H - T - B;
+      var top = Math.max.apply(null, data.map(function (d) { return Math.max(d.sales, d.cost); }));
+      // Axis in thousands (₱1K, ₱2K ...). The starting scale is higher for longer ranges
+      // and always grows if the sales are bigger than that.
+      var floors = { daily: 2000, weekly: 8000, monthly: 20000, yearly: 40000 };
+      var sc = axisScale(top, floors[trendMode] || 4000, 4, trendMode === "daily" ? 2 : 3);
+      var step = sc.step, max = sc.max;
+      var gw = pw / data.length;
+      var bw = Math.max(4, Math.min(26, gw * 0.3));
+      var out = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Sales versus production cost">';
+      for (var t = 0; t <= 4; t++) {
+        var gy = T + ph - (ph * t / 4);
+        out += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + gy + '" y2="' + gy + '" stroke="' + C_GRID + '" stroke-width="1"' + (t === 0 ? '' : ' stroke-dasharray="2 4"') + '/>';
+        out += '<text x="' + (L - 8) + '" y="' + (gy + 4) + '" text-anchor="end" fill="' + C_MUTED + '" font-size="11">' + fmtAxisPeso(step * t) + '</text>';
+      }
+      data.forEach(function (d, i) {
+        var cx = L + gw * i + gw / 2;
+        var hs = d.sales > 0 ? Math.max(3, ph * d.sales / max) : 0, hc = d.cost > 0 ? Math.max(3, ph * d.cost / max) : 0;
+        var tip = '<strong>' + svgEsc(d.full) + '</strong><br><i class="chart-swatch" style="background:' + C_SALES + '"></i>Sales ' + peso(d.sales) + '<br><i class="chart-swatch" style="background:' + C_COST + '"></i>Cost ' + peso(d.cost) + '<br>Profit ' + peso(d.sales - d.cost) + '<br>' + d.pcs.toLocaleString("en-US") + ' pcs sold';
+        out += '<g data-tip="' + svgEsc(tip) + '" tabindex="0">';
+        out += '<rect x="' + (cx - gw / 2) + '" y="' + T + '" width="' + gw + '" height="' + ph + '" fill="transparent"/>';
+        out += '<path d="' + barPath(cx - bw - 1, T + ph - hs, bw, hs, 4) + '" fill="' + C_SALES + '"/>';
+        out += '<path d="' + barPath(cx + 1, T + ph - hc, bw, hc, 4) + '" fill="' + C_COST + '"/>';
+        out += '</g>';
+        out += '<text x="' + cx + '" y="' + (H - 12) + '" text-anchor="middle" fill="' + C_MUTED + '" font-size="11">' + svgEsc(d.label) + '</text>';
+      });
+      out += '</svg>';
+      el.innerHTML = out;
+      wireTips(el);
+    }
+
+    document.querySelectorAll("#chart-trend-tabs button").forEach(function (b) {
+      b.addEventListener("click", function () { loadTrendChart(b.getAttribute("data-mode")); });
+    });
+
+    function renderHBars(el, rows, opts) {
+      // rows: [{label, value, color, tip, valueLabel}]
+      var rowH = 34, L = 118, R = 64, T = 8, W = 420;
+      var H = T + rows.length * rowH + 24;
+      var max = opts.max;
+      var pw = W - L - R;
+      var out = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + svgEsc(opts.label) + '">';
+      rows.forEach(function (r, i) {
+        var y = T + i * rowH;
+        var w = Math.max(0, pw * Math.min(r.value, max) / max);
+        var name = r.label.length > 16 ? r.label.slice(0, 15) + "…" : r.label;
+        out += '<g data-tip="' + svgEsc(r.tip) + '" tabindex="0">';
+        out += '<rect x="0" y="' + y + '" width="' + W + '" height="' + rowH + '" fill="transparent"/>';
+        out += '<text x="' + (L - 10) + '" y="' + (y + rowH / 2 + 4) + '" text-anchor="end" fill="' + C_INK + '" font-size="12">' + svgEsc(name) + '</text>';
+        out += '<path d="' + hBarPath(L, y + 7, w, rowH - 14, 4) + '" fill="' + r.color + '"/>';
+        out += '<text x="' + (L + w + 8) + '" y="' + (y + rowH / 2 + 4) + '" fill="' + C_INK + '" font-size="12" font-weight="700">' + svgEsc(r.valueLabel) + '</text>';
+        out += '</g>';
+      });
+      if (opts.refLine != null) {
+        var rx = L + pw * opts.refLine / max;
+        out += '<line x1="' + rx + '" x2="' + rx + '" y1="' + T + '" y2="' + (T + rows.length * rowH) + '" stroke="' + C_MUTED + '" stroke-width="1.5" stroke-dasharray="4 4"/>';
+        out += '<text x="' + rx + '" y="' + (T + rows.length * rowH + 16) + '" text-anchor="middle" fill="' + C_MUTED + '" font-size="11">' + opts.refLabel + '</text>';
+      }
+      out += '</svg>';
+      el.innerHTML = out;
+      wireTips(el);
+    }
+
+    function breadTotals(sales) {
+      var byItem = {};
+      recipes.forEach(function (r) { byItem[r.name] = { qty: 0, rev: 0 }; });
+      sales.forEach(function (s) {
+        var n = s.recipes ? s.recipes.name : "Unknown";
+        var d = byItem[n] || (byItem[n] = { qty: 0, rev: 0 });
+        d.qty += s.quantity; d.rev += s.total_amount;
+      });
+      return byItem;
+    }
+
+    var PIE_COLORS = ["#C1662F", "#2878A8", "#3E6B2E", "#EDBF6B", "#7A4E2D", "#9C3B1E"];
+
+    function renderPie(el, rows, label) {
+      // rows: [{label, value, tip}]
+      var total = rows.reduce(function (t, r) { return t + r.value; }, 0);
+      if (!total) { emptyChart(el, "No sales in this range yet."); return; }
+      var cx = 90, cy = 90, R = 80, ang = -Math.PI / 2;
+      var out = '<div class="pie-wrap"><svg class="pie-svg" viewBox="0 0 180 180" role="img" aria-label="' + svgEsc(label) + '">';
+      var shown = rows.filter(function (r) { return r.value > 0; });
+      shown.forEach(function (r, i) {
+        var frac = r.value / total, color = PIE_COLORS[i % PIE_COLORS.length];
+        if (shown.length === 1) {
+          out += '<g data-tip="' + svgEsc(r.tip) + '" tabindex="0"><circle cx="' + cx + '" cy="' + cy + '" r="' + R + '" fill="' + color + '" stroke="#fff" stroke-width="2"/></g>';
+          return;
+        }
+        var a2 = ang + frac * Math.PI * 2;
+        var x1 = cx + R * Math.cos(ang), y1 = cy + R * Math.sin(ang);
+        var x2 = cx + R * Math.cos(a2), y2 = cy + R * Math.sin(a2);
+        out += '<g data-tip="' + svgEsc(r.tip) + '" tabindex="0"><path d="M' + cx + ' ' + cy + ' L' + x1 + ' ' + y1 + ' A' + R + ' ' + R + ' 0 ' + (frac > 0.5 ? 1 : 0) + ' 1 ' + x2 + ' ' + y2 + ' Z" fill="' + color + '" stroke="#fff" stroke-width="2"/></g>';
+        ang = a2;
+      });
+      out += '</svg><ul class="pie-legend">';
+      shown.forEach(function (r, i) {
+        out += '<li><i class="chart-swatch" style="background:' + PIE_COLORS[i % PIE_COLORS.length] + '"></i><span class="pie-name">' + svgEsc(r.label) + '</span><strong>' + r.value.toLocaleString("en-US") + ' pcs &middot; ' + Math.round(r.value / total * 100) + '%</strong></li>';
+      });
+      out += '</ul></div>';
+      el.innerHTML = out;
+      wireTips(el);
+    }
+
+    function drawSalesRank(elId, sales, lowest) {
+      var el = document.getElementById(elId);
+      if (!el) return;
+      var byItem = breadTotals(sales);
+      if (!sales.length) { emptyChart(el, "No sales in this range yet."); return; }
+      var names = Object.keys(byItem).filter(function (n) { return !lowest || true; }).sort(function (a, b) {
+        return lowest ? byItem[a].qty - byItem[b].qty : byItem[b].qty - byItem[a].qty;
+      }).slice(0, 5);
+      renderPie(el, names.map(function (n) {
+        return { label: n, value: byItem[n].qty,
+          tip: "<strong>" + svgEsc(n) + "</strong><br>" + byItem[n].qty + " pcs sold<br>Sales " + peso(byItem[n].rev) };
+      }), (lowest ? "Lowest" : "Best") + " selling bread by pieces sold");
+    }
+
+    function renderMarginChart() {
+      var el = document.getElementById("chart-margin");
+      if (!el) return;
+      var rows = recipes.filter(function (r) { return r.selling_price > 0; }).map(function (r) {
+        var profit = r.selling_price - r.cost_per_piece;
+        return { name: r.name, margin: (profit / r.selling_price) * 100, profit: profit, price: r.selling_price, cost: r.cost_per_piece };
+      }).sort(function (a, b) { return b.margin - a.margin; });
+      if (!rows.length) { emptyChart(el, "No recipes with a selling price yet."); return; }
+      renderHBars(el, rows.map(function (r) {
+        var high = r.margin >= 50;
+        return { label: r.name, value: Math.max(0, r.margin), color: high ? C_GOOD : C_BAD, valueLabel: r.margin.toFixed(0) + "%" + (high ? " ▲" : " ▼"),
+          tip: "<strong>" + svgEsc(r.name) + "</strong><br>Margin " + r.margin.toFixed(1) + "% (" + (high ? "High Profit" : "Low Profit") + ")<br>Price ₱" + r.price.toFixed(2) + " &middot; Cost ₱" + r.cost.toFixed(2) + "<br>Profit ₱" + r.profit.toFixed(2) + " per pc" };
+      }), { max: 100, refLine: 50, refLabel: "50%", label: "Profit margin by bread" });
+    }
+
+    function renderCharts(sales, rangeKey) {
+      drawSalesRank("chart-best", sales, false);
+      drawSalesRank("chart-lowest", sales, true);
+    }
+
     async function refreshForRange(rangeKey) {
       headingEl.textContent = headingByRange[rangeKey] || "Sales";
       var sales = await fetchSales(rangeKey);
       await renderTotals(sales);
-      renderBestLowest(sales);
+      renderCharts(sales, rangeKey);
     }
 
     rangeSelect.addEventListener("change", function () { refreshForRange(rangeSelect.value); });
@@ -3267,6 +4057,8 @@
     populateBreadItemSelect();
     if (recipes.length) recomputeForecast();
     renderRanking();
+    renderMarginChart();
+    loadTrendChart(trendMode);
     await refreshForRange("today");
   }
 
@@ -3308,6 +4100,33 @@
      Init
      ======================================================================= */
 
+  /* ---- Double-click / double-save protection ----
+     Every "save" style button only runs one request at a time and stays blocked
+     for a moment afterwards (or for good while it is disabled), so clicking twice,
+     or clicking again while the page is still redirecting, can never create a
+     second copy of the record. */
+  function protectSaveButtons() {
+    ["save-recipe-btn", "save-ingredient-btn", "save-bread-stock-btn", "save-sale-btn",
+     "save-forecast-btn", "send-invite-btn", "create-account-btn"].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (!btn || btn.__guarded) return;
+      btn.__guarded = true;
+      var nativeAdd = btn.addEventListener;
+      btn.addEventListener = function (type, fn, opts) {
+        if (type === "click" && typeof fn === "function") {
+          var original = fn, busy = false;
+          fn = async function (e) {
+            if (busy || btn.disabled) { if (e && e.preventDefault) e.preventDefault(); return; }
+            busy = true;
+            try { return await original.call(this, e); }
+            finally { setTimeout(function () { busy = false; }, 1500); }
+          };
+        }
+        return nativeAdd.call(this, type, fn, opts);
+      };
+    });
+  }
+
   var appInitStarted = false;
 
   document.addEventListener("DOMContentLoaded", async function () {
@@ -3324,6 +4143,7 @@
         if (early && early.role) filterNavForRole(early.role);
       } catch (e) { /* ignore */ }
 
+      protectSaveButtons();
       fillFooterBasics();
       initPasswordToggles();
       initSignupForm();
@@ -3338,7 +4158,7 @@
       // Run the page initialisers side by side (only the one for the current
       // page does any work), each on its own so one failure can't freeze the rest.
       var inits = [initDashboardPage, initRecipesListPage, initRecipeFormPage, initRecipeViewPage,
-                   initInventoryPage, initAdminPage, initInviteAccountPage, initEditAccountPage,
+                   initInventoryPage, initAdminPage, initInviteAccountPage, initCreateAccountPage, initEditAccountPage,
                    initProfilePage, initRecordSalePage, initAnalyticsPage];
       var work = Promise.all(inits.map(function (fn) {
         return Promise.resolve().then(fn).catch(function (err) {

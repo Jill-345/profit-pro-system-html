@@ -47,7 +47,7 @@
     <h2 class="section-title" style="margin-top:0;">Today's Bread Stock</h2>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Bread Item</th><th>Baked</th><th>Sold</th><th>Remaining</th><th>Last Baked</th></tr></thead>
+        <thead><tr><th>Bread Item</th><th>Baked</th><th>Sold</th><th>Remaining</th><th>Last Baked</th><th>Batch</th></tr></thead>
         <tbody id="bread-stock-body"></tbody>
       </table>
     </div>
@@ -130,7 +130,7 @@
     </div>
 
         <div class="inline-form" id="add-ingredient-form">
-      <h2 class="section-title" style="margin-top:0;">Recipe details</h2>
+      <h2 class="section-title" style="margin-top:0;">Ingredient details</h2>
       <div class="form-row">
         <div class="field-group">
           <label for="ing-name">Ingredient</label>
@@ -138,7 +138,7 @@
         </div>
         <div class="field-group">
           <label for="ing-category">Category</label>
-          <div class="field-control"><input type="text" id="ing-category" placeholder="e.g. Flour & grains"></div>
+          <div class="field-control"><select id="ing-category"></select></div>
         </div>
       </div>
       <div class="form-row">
@@ -167,15 +167,43 @@
         <div class="field-group">
           <label for="ing-purchase-unit">Purchased as (optional)</label>
           <div class="field-control">
-            <input type="text" id="ing-purchase-unit" placeholder="e.g. sack, box, case — leave blank if same as recipe unit">
+            <select id="ing-purchase-unit">
+              <option value="">Same as recipe unit</option>
+              <option value="sack">Sack</option>
+              <option value="box">Box</option>
+              <option value="case">Case</option>
+              <option value="tray">Tray</option>
+              <option value="pack">Pack</option>
+              <option value="tub">Tub</option>
+              <option value="can">Can</option>
+              <option value="bottle">Bottle</option>
+              <option value="bag">Bag</option>
+              <option value="carton">Carton</option>
+              <option value="jar">Jar</option>
+              <option value="pail">Pail</option>
+              <option value="sachet">Sachet</option>
+            </select>
           </div>
+          <p class="field-hint">How you buy it. Optional.</p>
         </div>
         <div class="field-group">
-          <label for="ing-conversion">Recipe units per 1 purchase unit</label>
-          <div class="field-control">
-            <input type="number" id="ing-conversion" placeholder="e.g. 25000" min="0.0001" step="any" value="1">
+          <label for="ing-pack-size">Each one contains</label>
+          <div style="display:flex;gap:10px;">
+            <div class="field-control" style="flex:2;">
+              <input type="number" id="ing-pack-size" placeholder="e.g. 25" min="0.0001" step="any" value="1">
+            </div>
+            <div class="field-control" style="flex:1;">
+              <select id="ing-pack-unit">
+                <option value="g" selected>g</option>
+                <option value="kg">kg</option>
+                <option value="ml">ml</option>
+                <option value="L">L</option>
+                <option value="pc">pc</option>
+              </select>
+            </div>
           </div>
-          <p class="field-hint" id="ing-conversion-hint">Example: 1 sack = 25,000 g</p>
+          <input type="hidden" id="ing-conversion" value="1">
+          <p class="field-hint" id="ing-conversion-hint">Example: 1 sack = 25 kg &rarr; 25,000 g in your recipes</p>
         </div>
       </div>
       <div class="form-row">

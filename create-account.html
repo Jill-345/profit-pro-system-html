@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Invite Account — DRR Bakery</title>
+<title>Create Account — DRR Bakery</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="page-bg">
@@ -36,39 +36,60 @@
 <main class="app-main">
   <a class="btn-back" href="admin.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Back to Accounts</a>
 
-  <div id="invite-form-section">
-    <h2 class="section-title" style="margin-top:0;">Invite A New Account</h2>
+  <div id="create-form-section">
+    <h2 class="section-title" style="margin-top:0;">Create A New Account</h2>
+    <div class="form-row">
+      <div class="field-group">
+        <label for="create-first-name">First Name</label>
+        <div class="field-control"><input type="text" id="create-first-name" autocomplete="off"></div>
+        <p class="field-error" id="create-first-name-error"></p>
+      </div>
+      <div class="field-group">
+        <label for="create-middle-name">Middle Name <span class="field-hint" style="display:inline;">(optional)</span></label>
+        <div class="field-control"><input type="text" id="create-middle-name" autocomplete="off"></div>
+      </div>
+      <div class="field-group">
+        <label for="create-last-name">Last Name</label>
+        <div class="field-control"><input type="text" id="create-last-name" autocomplete="off"></div>
+        <p class="field-error" id="create-last-name-error"></p>
+      </div>
+    </div>
 
     <div class="form-row">
       <div class="field-group">
-        <label for="invite-email">Email</label>
-        <div class="field-control"><input type="email" id="invite-email" placeholder="name@example.com" autocomplete="off"></div>
+        <label for="create-email">Email</label>
+        <div class="field-control"><input type="email" id="create-email" placeholder="name@example.com" autocomplete="off"></div>
+        <p class="field-error" id="create-email-error"></p>
+      </div>
+      <div class="field-group">
+        <label for="create-password">Password</label>
+        <div class="field-control">
+          <input type="password" id="create-password" data-has-toggle="true" autocomplete="new-password">
+          <button type="button" class="password-toggle" aria-label="Show password" data-toggle-target="create-password"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg></button>
+        </div>
+        <p class="field-error" id="create-password-error"></p>
+        <p class="field-hint">At least 8 characters, with uppercase, lowercase, a number and a symbol. <a href="#" id="create-generate-pw">Generate one</a></p>
       </div>
     </div>
 
     <p class="field-group-label">Assign Role</p>
-    <div class="chip-row" id="invite-role-toggle">
+    <div class="chip-row" id="create-role-toggle">
       <button type="button" class="chip" data-role="Admin">Admin</button>
       <button type="button" class="chip active" data-role="Staff">Staff</button>
     </div>
 
     <div class="btn-row">
       <a class="btn-outline" href="admin.html">Cancel</a>
-      <button class="btn-dark" id="send-invite-btn" type="button">Send Invite</button>
+      <button class="btn-dark" id="create-account-btn" type="button">Create Account</button>
     </div>
   </div>
 
-  <div class="inline-form" id="invite-result-section">
-    <h2 class="section-title" style="margin-top:0;">Invitation Sent</h2>
-    <p class="field-hint" id="invite-result-text">We emailed a confirmation link. Once they click it, they'll be brought to DRR Bakery to enter their name and set a password.</p>
-    <p class="field-hint">Didn't arrive? Ask them to check spam, or share this backup sign-up link with them instead:</p>
-    <div class="field-group">
-      <label for="invite-link-input">Backup sign-up link</label>
-      <div class="field-control"><input type="text" id="invite-link-input" readonly></div>
-    </div>
+  <div class="inline-form" id="create-result-section">
+    <h2 class="section-title" style="margin-top:0;">Account Created</h2>
+    <p class="field-hint" id="create-result-text"></p>
     <div class="btn-row" style="justify-content:flex-start;">
-      <button class="btn-dark" id="copy-invite-link-btn" type="button">Copy link</button>
-      <a class="btn-outline" href="admin.html">Done</a>
+      <a class="btn-dark" href="create-account.html">Create another</a>
+      <a class="btn-outline" href="admin.html">Back to Accounts</a>
     </div>
   </div>
 
