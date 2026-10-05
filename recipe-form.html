@@ -75,12 +75,6 @@
         <input type="number" id="input-portions-per-piece" placeholder="e.g. 1" min="1" value="1">
       </div>
     </div>
-    <div class="field-group">
-      <label>Base batch size</label>
-      <div class="field-control">
-        <input type="text" value="Same as batch size above" disabled>
-      </div>
-    </div>
   </div>
 
   <div class="field-group">
@@ -94,7 +88,7 @@
   <div class="table-wrap">
     <table class="data-table">
       <thead>
-        <tr><th>Ingredient</th><th>Category</th><th>Unit</th><th>Cost/Unit</th><th>Ingredient Cost</th><th></th></tr>
+        <tr><th>Ingredient</th><th>Category</th><th>Quantity</th><th>Cost/Unit</th><th>Ingredient Cost</th><th></th></tr>
       </thead>
       <tbody id="recipe-ingredients-body"></tbody>
     </table>
@@ -109,14 +103,20 @@
     </div>
     <div class="field-group">
       <label for="input-ing-qty">Quantity used</label>
-      <div class="field-control">
-        <input type="number" id="input-ing-qty" placeholder="e.g. 1000" min="0">
+      <div style="display:flex;gap:8px;">
+        <div class="field-control" style="flex:2;">
+          <input type="number" id="input-ing-qty" placeholder="e.g. 4000" min="0" step="any">
+        </div>
+        <div class="field-control" style="flex:1;">
+          <select id="input-ing-unit"></select>
+        </div>
       </div>
     </div>
     <div class="field-group" style="flex:0 0 auto;">
       <button class="btn-outline" id="add-ingredient-line" type="button">+ Add ingredient</button>
     </div>
   </div>
+  <p class="field-hint" id="ing-pick-hint" style="margin-top:-8px;"></p>
   <p class="empty-note" style="margin-top:-8px;">Need something new? <a href="inventory.html?add=1">Edit ingredient from inventory</a></p>
 
   <div class="info-box-row">
