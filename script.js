@@ -3660,7 +3660,7 @@
       chartCard(x, y, w, h, title, "Pieces sold");
       var total = list.reduce(function (s, n) { return s + qtyOf(n); }, 0);
       if (!total) { doc.setFont(F.text, "italic"); doc.setFontSize(9); setC(MOCHA); doc.text("No sales in this range yet.", x + w / 2, y + h / 2 + 6, { align: "center" }); return; }
-      var cx = x + w / 2, cy = y + 36 + 54, R = 52, ang = -Math.PI / 2;
+      var cx = x + w / 2, cy = y + 34 + 42, R = 38, ang = -Math.PI / 2;
       var shown = list.filter(function (n) { return qtyOf(n) > 0; });
       shown.forEach(function (n, i) {
         var col = PIE[i % PIE.length], frac = qtyOf(n) / total;
@@ -3674,12 +3674,12 @@
         doc.lines(segs, cx, cy, [1, 1], "FD", true);
         ang = a2;
       });
-      var ly = cy + R + 20;
+      var ly = cy + R + 18;
       shown.forEach(function (n, i) {
         fillC(PIE[i % PIE.length]); doc.rect(x + 16, ly - 6, 8, 8, "F");
         doc.setFont(F.text, "normal"); doc.setFontSize(8.5); setC(CRUST); doc.text(fitText(n, w - 130), x + 29, ly + 1);
         doc.setFont(F.text, "bold"); doc.text(qtyOf(n).toLocaleString("en-US") + " pcs  |  " + Math.round(qtyOf(n) / total * 100) + "%", x + w - 14, ly + 1, { align: "right" });
-        ly += 14;
+        ly += 12.5;
       });
     }
 
@@ -3743,12 +3743,12 @@
     recipes.forEach(function (r) { allQty[r.name] = 0; });
     names.forEach(function (n) { allQty[n] = byItem[n]; });
     var ranked = Object.keys(allQty).sort(function (a, b) { return allQty[b] - allQty[a]; });
-    var pieH = 262, pieW = (CW - 14) / 2;
+    var pieH = 200, pieW = (CW - 14) / 2;
     y = ensure(y, pieH + 10);
     var qtyOf = function (n) { return allQty[n] || 0; };
     drawPie(M, y, pieW, pieH, "Best Selling Bread", sales.length ? ranked.slice(0, 5) : [], qtyOf);
     drawPie(M + pieW + 14, y, pieW, pieH, "Lowest Selling Bread", sales.length ? ranked.slice().reverse().slice(0, 5) : [], qtyOf);
-    y += pieH + 30;
+    y += pieH + 24;
 
     // ---- 5. Profitability ranking ----
     var rows = recipes.map(function (r) {
@@ -3758,11 +3758,6 @@
     }).sort(function (a, b) { return b.margin - a.margin; });
 
     y = sectionTitle("5.  Bread Profitability Ranking", y);
-    if (rows.length) {
-      doc.setFont(F.text, "italic"); doc.setFontSize(8.5); setC(MOCHA);
-      doc.text("All breads are listed, ranked by profit margin. The five most profitable breads are highlighted.", M, y - 6);
-      y += 6;
-    }
     doc.autoTable(Object.assign({}, tableBase, {
       startY: y,
       head: [["No.", "Bread Name", "Unit Cost", "Selling Price", "Profit", "Margin", "Status"]],
@@ -3785,9 +3780,6 @@
 
     // ---- 6. Bread sales: every bread, best seller first, with a coloured Total row ----
     y = sectionTitle("6.  Bread Sales", y);
-    doc.setFont(F.text, "italic"); doc.setFontSize(8.5); setC(MOCHA);
-    doc.text("What each bread sold in the reporting period (" + rangeLabel.toLowerCase() + "). Best sellers first.", M, y - 6);
-    y += 6;
     var soldBy = {};
     sales.forEach(function (x) {
       var t = soldBy[x.recipe_id] || (soldBy[x.recipe_id] = { qty: 0, amount: 0, cost: 0, profit: 0 });
@@ -3811,7 +3803,7 @@
       didParseCell: function (d) {
         alignHead(d, [2, 3, 4, 5], [0]);
         if (d.section === "body" && d.row.index === salesBody.length - 1) {
-          d.cell.styles.fontStyle = "bold"; d.cell.styles.fontSize = 10; d.cell.styles.textColor = CRUST;
+          d.cell.styles.fontStyle = "bold"; d.cell.styles.fontSize = 10; d.cell.styles.textColor = CRUST; d.cell.styles.fillColor = [250, 233, 196];
           if (d.column.index === 3) d.cell.styles.textColor = [165, 81, 31];
           if (d.column.index === 4) d.cell.styles.textColor = [30, 95, 135];
           if (d.column.index === 5) d.cell.styles.textColor = GOOD;
@@ -3859,10 +3851,10 @@
       doc.text(l, M + 8, y, { lineHeightFactor: 1.35 });
       y += l.length * 12.5 + 3;
     });
-    y += 30;
+    y += 14;
 
-    // ---- Sign-off ----
-    y = ensure(y, 70);
+    // ---- Sign-off (needs only ~50pt, so it stays on the Notes page when there is room) ----
+    y = ensure(y, 50);
     var sigW = (CW - 40) / 2;
     [["Prepared by", preparedBy], ["Reviewed / Approved by", ""]].forEach(function (sg, i) {
       var x = M + i * (sigW + 40);
