@@ -3463,7 +3463,7 @@
     });
   }
 
-  async function exportReportToPdf(rangeKey, sales, recipes) {
+  async function exportReportToPdf(rangeKey, sales, recipes, extra) {
     var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
     if (!jsPDFCtor) { toast("PDF library didn't load. Check your internet connection and try again."); return; }
 
@@ -3494,10 +3494,10 @@
       return y + 26;
     }
     var tableBase = {
-      theme: "plain",
+      theme: "grid",
       headStyles: { fillColor: BARK, textColor: CREAM, fontStyle: "bold", fontSize: 8.5, cellPadding: { top: 8, bottom: 8, left: 8, right: 8 } },
-      styles: { font: F.text, fontSize: 9, cellPadding: { top: 7, bottom: 7, left: 8, right: 8 }, textColor: CRUST, lineColor: WHEAT_LINE, lineWidth: { bottom: 0.5 } },
-      alternateRowStyles: { fillColor: FIELD },
+      styles: { font: F.text, fontSize: 9, cellPadding: { top: 7, bottom: 7, left: 8, right: 8 }, textColor: CRUST, fillColor: [255, 255, 255], lineColor: MOCHA, lineWidth: 0.6 },
+      alternateRowStyles: { fillColor: [255, 255, 255] },
       margin: { left: M, right: M, top: BODY_TOP, bottom: BODY_BOTTOM }
     };
     function alignHead(d, right, center) {
@@ -3571,6 +3571,118 @@
     var bestText = names.length ? names[0] + " — " + byItem[names[0]] + " pcs sold" : "No sales in this period";
     var lowText = names.length ? names[names.length - 1] + " — " + byItem[names[names.length - 1]] + " pcs sold" : "No sales in this period";
 
+    // ---- Drawing helpers for the charts (same look & colours as the analytics page) ----
+    var C_SALES = [193, 102, 47], C_COST = [40, 120, 168], WHITE = [255, 255, 255];
+    var PIE = [[193, 102, 47], [40, 120, 168], [62, 107, 46], [237, 191, 107], [122, 78, 45], [156, 59, 30]];
+    function fillC(c) { doc.setFillColor(c[0], c[1], c[2]); }
+    function drawC(c) { doc.setDrawColor(c[0], c[1], c[2]); }
+    function fitText(t, maxW) {
+      t = String(t);
+      if (doc.getTextWidth(t) <= maxW) return t;
+      while (t.length > 1 && doc.getTextWidth(t + "...") > maxW) t = t.slice(0, -1);
+      return t + "...";
+    }
+    function axisLabel(n) {
+      if (!n) return "0";
+      if (n >= 1000000) return +(n / 1000000).toFixed(1) + "M";
+      if (n >= 1000) return +(n / 1000).toFixed(1) + "K";
+      return String(n);
+    }
+    // White card with a title (left) and a small caption (right). Returns nothing; caller draws inside.
+    function chartCard(x, y, w, h, title, sub) {
+      fillC(WHITE); drawC(WHEAT_LINE); doc.setLineWidth(0.7); doc.rect(x, y, w, h, "FD");
+      fillC(CINNAMON); doc.rect(x, y, 3, h, "F");
+      doc.setFont(F.text, "bold"); doc.setFontSize(10); setC(CRUST);
+      doc.text(title, x + 16, y + 20);
+      if (sub) { doc.setFont(F.text, "italic"); doc.setFontSize(8); setC(MOCHA); doc.text(sub, x + w - 14, y + 20, { align: "right" }); }
+    }
+    function legendItem(x, y, color, text) {
+      fillC(color); doc.rect(x, y - 6, 8, 8, "F");
+      doc.setFont(F.text, "normal"); doc.setFontSize(8); setC(CRUST); doc.text(text, x + 13, y + 1);
+      return x + 13 + doc.getTextWidth(text) + 16;
+    }
+
+    // Sales vs Production Cost — grouped columns, one pair per period
+    function drawTrendChart(y, trend) {
+      var h = 236;
+      y = ensure(y, h + 10);
+      chartCard(M, y, CW, h, "Sales vs Production Cost (" + trend.title + ")", trend.sub + "  |  amounts in PHP");
+      var lx = legendItem(M + 16, y + 38, C_SALES, "Sales"); legendItem(lx, y + 38, C_COST, "Production cost");
+      var L = M + 62, R = M + CW - 18, T = y + 54, B = y + h - 30, pw = R - L, ph = B - T;
+      var data = trend.buckets;
+      var top = Math.max.apply(null, data.map(function (d) { return Math.max(d.sales, d.cost); }));
+      var floors = { daily: 2000, weekly: 8000, monthly: 20000, yearly: 40000 };
+      var sc = axisScale(top, floors[trend.mode] || 4000, 4, trend.mode === "daily" ? 2 : 3);
+      doc.setFontSize(8); doc.setFont(F.text, "normal");
+      for (var t = 0; t <= 4; t++) {
+        var gy = B - ph * t / 4;
+        drawC(WHEAT_LINE); doc.setLineWidth(t === 0 ? 0.9 : 0.4);
+        if (t) doc.setLineDashPattern([2, 3], 0);
+        doc.line(L, gy, R, gy); doc.setLineDashPattern([], 0);
+        setC(MOCHA); doc.text(axisLabel(sc.step * t), L - 8, gy + 3, { align: "right" });
+      }
+      var gw = pw / data.length, bw = Math.max(4, Math.min(20, gw * 0.3));
+      data.forEach(function (d, i) {
+        var cx = L + gw * i + gw / 2;
+        var hs = d.sales > 0 ? Math.max(1.5, ph * d.sales / sc.max) : 0, hc = d.cost > 0 ? Math.max(1.5, ph * d.cost / sc.max) : 0;
+        if (hs) { fillC(C_SALES); doc.rect(cx - bw - 0.5, B - hs, bw, hs, "F"); }
+        if (hc) { fillC(C_COST); doc.rect(cx + 0.5, B - hc, bw, hc, "F"); }
+        doc.setFont(F.text, "normal"); doc.setFontSize(7.5); setC(MOCHA);
+        doc.text(fitText(d.label, gw + 2), cx, B + 13, { align: "center" });
+      });
+      return y + h + 10;
+    }
+
+    // Profit Margin by Bread — horizontal bars with the 50% "High Profit" mark
+    function drawMarginChart(y, list) {
+      var rowH = 17, h = 66 + list.length * rowH;
+      y = ensure(y, h + 10);
+      chartCard(M, y, CW, h, "Profit Margin by Bread", "Dashed line = 50% High Profit mark");
+      var lx = legendItem(M + 16, y + 38, GOOD, "High Profit (50% and above)"); legendItem(lx, y + 38, BAD, "Low Profit (below 50%)");
+      var L = M + 118, R = M + CW - 58, T = y + 52, pw = R - L;
+      var rx = L + pw * 0.5, bot = T + list.length * rowH;
+      drawC(MOCHA); doc.setLineWidth(0.9); doc.setLineDashPattern([3, 3], 0); doc.line(rx, T - 2, rx, bot); doc.setLineDashPattern([], 0);
+      list.forEach(function (r, i) {
+        var ry = T + i * rowH, high = r.margin >= 50;
+        doc.setFont(F.text, "normal"); doc.setFontSize(8.5); setC(CRUST);
+        doc.text(fitText(r.name, 100), L - 8, ry + 10, { align: "right" });
+        var bw = pw * Math.max(0, Math.min(r.margin, 100)) / 100;
+        fillC(high ? GOOD : BAD); if (bw > 0) doc.rect(L, ry + 2.5, bw, rowH - 7, "F");
+        doc.setFont(F.text, "bold"); doc.setFontSize(8.5); setC(CRUST);
+        doc.text(pct2(r.margin), L + bw + 6, ry + 10);
+      });
+      doc.setFont(F.text, "normal"); doc.setFontSize(8); setC(MOCHA); doc.text("50%", rx, bot + 12, { align: "center" });
+      return y + h + 10;
+    }
+
+    // Pie of the top / bottom five breads by pieces sold (same colours as the page)
+    function drawPie(x, y, w, h, title, list, qtyOf) {
+      chartCard(x, y, w, h, title, "Pieces sold");
+      var total = list.reduce(function (s, n) { return s + qtyOf(n); }, 0);
+      if (!total) { doc.setFont(F.text, "italic"); doc.setFontSize(9); setC(MOCHA); doc.text("No sales in this range yet.", x + w / 2, y + h / 2 + 6, { align: "center" }); return; }
+      var cx = x + w / 2, cy = y + 36 + 54, R = 52, ang = -Math.PI / 2;
+      var shown = list.filter(function (n) { return qtyOf(n) > 0; });
+      shown.forEach(function (n, i) {
+        var col = PIE[i % PIE.length], frac = qtyOf(n) / total;
+        fillC(col);
+        if (shown.length === 1) { doc.circle(cx, cy, R, "F"); return; }
+        var a2 = ang + frac * Math.PI * 2, steps = Math.max(2, Math.ceil(frac * 60)), pts = [[R * Math.cos(ang), R * Math.sin(ang)]];
+        for (var s = 1; s <= steps; s++) { var a = ang + (a2 - ang) * s / steps; pts.push([R * Math.cos(a), R * Math.sin(a)]); }
+        var segs = [], prev = [0, 0];
+        pts.forEach(function (p) { segs.push([p[0] - prev[0], p[1] - prev[1]]); prev = p; });
+        drawC(WHITE); doc.setLineWidth(1.4);
+        doc.lines(segs, cx, cy, [1, 1], "FD", true);
+        ang = a2;
+      });
+      var ly = cy + R + 20;
+      shown.forEach(function (n, i) {
+        fillC(PIE[i % PIE.length]); doc.rect(x + 16, ly - 6, 8, 8, "F");
+        doc.setFont(F.text, "normal"); doc.setFontSize(8.5); setC(CRUST); doc.text(fitText(n, w - 130), x + 29, ly + 1);
+        doc.setFont(F.text, "bold"); doc.text(qtyOf(n).toLocaleString("en-US") + " pcs  |  " + Math.round(qtyOf(n) / total * 100) + "%", x + w - 14, ly + 1, { align: "right" });
+        ly += 14;
+      });
+    }
+
     // ---- 1. Executive summary ----
     y = sectionTitle("1.  Executive Summary", y);
     var summaryText = sales.length
@@ -3583,114 +3695,60 @@
     doc.text(lines, M, y, { lineHeightFactor: 1.45 });
     y += lines.length * 15 + 18;
 
-    // ---- 2. Financial summary ----
+    // ---- 2. Financial summary: the four tiles from the top of the analytics page ----
     y = sectionTitle("2.  Financial Summary", y);
-    doc.autoTable(Object.assign({}, tableBase, {
-      startY: y,
-      head: [["Total Sales", "Total Production Cost", "Gross Profit", "Net Profit"]],
-      body: [[money(totalSales), money(totalCost), money(gross), money(gross)]],
-      alternateRowStyles: {},
-      styles: Object.assign({}, tableBase.styles, { fontSize: 11, fontStyle: "bold", halign: "center", cellPadding: { top: 13, bottom: 13, left: 8, right: 8 }, textColor: CRUST, fillColor: [255, 255, 255] }),
-      didParseCell: function (d) { if (d.section === "head") d.cell.styles.halign = "center"; }
-    }));
-    y = doc.lastAutoTable.finalY + 30;
-
-    // ---- 3. Sales vs production cost by period (table form of the analytics chart) ----
-    y = sectionTitle("3.  Sales vs Production Cost", y);
-    var byHour = false, byMonth = rangeKey === "all";
-    var periods = {}, periodOrder = [];
-    sales.slice().sort(function (a, b) { return new Date(a.sale_datetime) - new Date(b.sale_datetime); }).forEach(function (sl) {
-      var dt = new Date(sl.sale_datetime), key, label;
-      if (byHour) { key = dt.getFullYear() + "-" + dt.getMonth() + "-" + dt.getDate() + "-" + dt.getHours(); label = dt.toLocaleTimeString("en-US", { hour: "numeric" }); }
-      else if (byMonth) { key = dt.getFullYear() + "-" + dt.getMonth(); label = dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }); }
-      else { key = dt.getFullYear() + "-" + dt.getMonth() + "-" + dt.getDate(); label = dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
-      var p = periods[key];
-      if (!p) { p = periods[key] = { label: label, qty: 0, rev: 0, cost: 0 }; periodOrder.push(key); }
-      p.qty += sl.quantity; p.rev += sl.total_amount; p.cost += sl.food_cost;
+    var tiles = [["Total Sales", totalSales, C_SALES], ["Total Production Cost", totalCost, C_COST], ["Gross Profit", gross, GOOD], ["Net Profit", gross, GOOD]];
+    var gap = 10, tw = (CW - gap * 3) / 4;
+    tiles.forEach(function (t, i) {
+      var tx = M + i * (tw + gap);
+      fillC(WHITE); drawC(WHEAT_LINE); doc.setLineWidth(0.7); doc.rect(tx, y, tw, 58, "FD");
+      fillC(t[2]); doc.rect(tx, y, tw, 3.5, "F");
+      doc.setFont(F.text, "bold"); doc.setFontSize(7); setC(MOCHA); doc.text(t[0].toUpperCase(), tx + 10, y + 20, { charSpace: 0.3 });
+      doc.setFont(F.text, "bold"); doc.setFontSize(11.5); setC(CRUST); doc.text(fitText(money(t[1]), tw - 16), tx + 10, y + 42);
     });
-    // Show every day of a 7 / 30-day range (zero when nothing sold) so the table matches the selected range.
-    var spanDays = rangeKey === "7days" ? 7 : (rangeKey === "30days" ? 30 : (rangeKey === "today" ? 1 : 0));
-    for (var di = spanDays - 1; di >= 0; di--) {
-      var dd = new Date(); dd.setDate(dd.getDate() - di);
-      var dkey = dd.getFullYear() + "-" + dd.getMonth() + "-" + dd.getDate();
-      if (!periods[dkey]) {
-        periods[dkey] = { label: dd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), qty: 0, rev: 0, cost: 0 };
-      }
-    }
-    if (spanDays) {
-      periodOrder = [];
-      for (var dj = spanDays - 1; dj >= 0; dj--) {
-        var d2 = new Date(); d2.setDate(d2.getDate() - dj);
-        periodOrder.push(d2.getFullYear() + "-" + d2.getMonth() + "-" + d2.getDate());
-      }
-    }
-    if (periodOrder.length) {
+    y += 58 + 30;
+
+    // ---- 3. Sales charts ----
+    y = sectionTitle("3.  Sales Charts", y);
+    var trend = extra && extra.trend;
+    if (trend && trend.buckets && trend.buckets.some(function (d) { return d.sales > 0 || d.cost > 0; })) {
+      y = drawTrendChart(y, trend);
+      y = ensure(y, 40 + (trend.buckets.length + 1) * 17);
       doc.autoTable(Object.assign({}, tableBase, {
         startY: y,
-        head: [[byMonth ? "Month" : "Date", "Pieces Sold", "Sales", "Production Cost", "Profit"]],
-        body: periodOrder.map(function (k) {
-          var p = periods[k];
-          return [p.label, p.qty.toLocaleString("en-US"), money(p.rev), money(p.cost), money(p.rev - p.cost)];
-        }).concat([["Total", units.toLocaleString("en-US"), money(totalSales), money(totalCost), money(gross)]]),
+        head: [[trend.mode === "yearly" ? "Year" : (trend.mode === "monthly" ? "Month" : (trend.mode === "weekly" ? "Week" : "Date")), "Pieces Sold", "Sales", "Production Cost", "Profit"]],
+        body: trend.buckets.map(function (b) { return [b.full, b.pcs.toLocaleString("en-US"), money(b.sales), money(b.cost), money(b.sales - b.cost)]; }),
+        styles: Object.assign({}, tableBase.styles, { fontSize: 8, cellPadding: { top: 4, bottom: 4, left: 8, right: 8 } }),
+        headStyles: Object.assign({}, tableBase.headStyles, { fontSize: 8, cellPadding: { top: 5, bottom: 5, left: 8, right: 8 } }),
         columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
-        didParseCell: function (d) {
-          alignHead(d, [1, 2, 3, 4], []);
-          if (d.section === "body" && d.row.index === periodOrder.length) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = BUTTER; }
-        }
+        didParseCell: function (d) { alignHead(d, [1, 2, 3, 4], []); }
       }));
-      y = doc.lastAutoTable.finalY;
+      y = doc.lastAutoTable.finalY + 16;
     } else {
-      doc.setFont(F.text, "normal"); doc.setFontSize(10); setC(MOCHA);
-      doc.text("No sales recorded in this period.", M, y + 4); y += 10;
+      y = ensure(y, 40);
+      doc.setFont(F.text, "italic"); doc.setFontSize(10); setC(MOCHA);
+      doc.text("No sales recorded in the chart period yet.", M, y); y += 26;
     }
-    y += 30;
 
-    // ---- 4. Sales performance ----
-    y = sectionTitle("4.  Sales Performance", y);
+    var marginRows = recipes.filter(function (r) { return r.selling_price > 0; }).map(function (r) {
+      var profit = r.selling_price - r.cost_per_piece;
+      return { name: r.name, margin: (profit / r.selling_price) * 100 };
+    }).sort(function (a, b) { return b.margin - a.margin; });
+    if (marginRows.length) y = drawMarginChart(y, marginRows);
+    y += 14;
+
+    // ---- 4. Best / lowest selling bread (pies, side by side like the page) ----
+    y = sectionTitle("4.  Best Selling / Lowest Selling Bread", y);
     var allQty = {};
     recipes.forEach(function (r) { allQty[r.name] = 0; });
     names.forEach(function (n) { allQty[n] = byItem[n]; });
     var ranked = Object.keys(allQty).sort(function (a, b) { return allQty[b] - allQty[a]; });
-    function rankTable(title, list) {
-      y = ensure(y, 40 + list.length * 24);
-      doc.setFont(F.text, "bold"); doc.setFontSize(9.5); setC(CRUST);
-      doc.text(title, M, y); y += 8;
-      doc.autoTable(Object.assign({}, tableBase, {
-        startY: y,
-        head: [["Rank", "Bread", "Pieces Sold", "Share of Sales", "Revenue"]],
-        body: list.map(function (n, i) {
-          var d = detail[n] || { rev: 0 };
-          return [i + 1, n, allQty[n].toLocaleString("en-US"), units ? pct2(allQty[n] / units * 100) : "0.00%", money(d.rev)];
-        }),
-        columnStyles: { 0: { cellWidth: 36, halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
-        didParseCell: function (d) { alignHead(d, [2, 3, 4], [0]); }
-      }));
-      y = doc.lastAutoTable.finalY + 18;
-    }
-    if (sales.length && ranked.length) {
-      rankTable("Best Selling Bread (Top 5)", ranked.slice(0, 5));
-      rankTable("Lowest Selling Bread (Bottom 5)", ranked.slice().reverse().slice(0, 5));
-    } else {
-      doc.setFont(F.text, "normal"); doc.setFontSize(10); setC(MOCHA);
-      doc.text("No sales recorded in this period.", M, y + 4); y += 24;
-    }
-    doc.setFont(F.text, "bold"); doc.setFontSize(9.5); setC(CRUST);
-    if (names.length) { y = ensure(y, 60); doc.text("Sales by Item", M, y); y += 8; }
-
-    if (names.length) {
-      doc.autoTable(Object.assign({}, tableBase, {
-        startY: y,
-        head: [["Item", "Units Sold", "Revenue", "Production Cost", "Gross Profit"]],
-        body: names.map(function (n) {
-          var d = detail[n];
-          return [n, d.qty.toLocaleString("en-US"), money(d.rev), money(d.cost), money(d.rev - d.cost)];
-        }),
-        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
-        didParseCell: function (d) { alignHead(d, [1, 2, 3, 4], []); }
-      }));
-      y = doc.lastAutoTable.finalY;
-    }
-    y += 30;
+    var pieH = 262, pieW = (CW - 14) / 2;
+    y = ensure(y, pieH + 10);
+    var qtyOf = function (n) { return allQty[n] || 0; };
+    drawPie(M, y, pieW, pieH, "Best Selling Bread", sales.length ? ranked.slice(0, 5) : [], qtyOf);
+    drawPie(M + pieW + 14, y, pieW, pieH, "Lowest Selling Bread", sales.length ? ranked.slice().reverse().slice(0, 5) : [], qtyOf);
+    y += pieH + 30;
 
     // ---- 5. Profitability ranking ----
     var rows = recipes.map(function (r) {
@@ -3709,7 +3767,7 @@
       startY: y,
       head: [["No.", "Bread Name", "Unit Cost", "Selling Price", "Profit", "Margin", "Status"]],
       body: rows.map(function (r, i) {
-        return [i + 1, r.name, money(r.cost), money(r.price), money(r.profit), pct2(r.margin), r.margin >= 50 ? "High Profit" : "Low Profit"];
+        return [i + 1, r.name + (i < 5 ? "  (Top 5)" : ""), money(r.cost), money(r.price), money(r.profit), pct2(r.margin), r.margin >= 50 ? "High Profit" : "Low Profit"];
       }),
       columnStyles: { 0: { cellWidth: 32, halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "center", fontStyle: "bold" } },
       didParseCell: function (d) {
@@ -3725,8 +3783,70 @@
     }
     y += 30;
 
-    // ---- 5. Notes ----
-    y = sectionTitle("6.  Notes", y);
+    // ---- 6. Bread sales: every bread, best seller first, with a coloured Total row ----
+    y = sectionTitle("6.  Bread Sales", y);
+    doc.setFont(F.text, "italic"); doc.setFontSize(8.5); setC(MOCHA);
+    doc.text("What each bread sold in the reporting period (" + rangeLabel.toLowerCase() + "). Best sellers first.", M, y - 6);
+    y += 6;
+    var soldBy = {};
+    sales.forEach(function (x) {
+      var t = soldBy[x.recipe_id] || (soldBy[x.recipe_id] = { qty: 0, amount: 0, cost: 0, profit: 0 });
+      var amount = Number(x.total_amount) || 0, cost = Number(x.food_cost) || 0;
+      t.qty += Number(x.quantity) || 0; t.amount += amount; t.cost += cost;
+      t.profit += x.gross_profit != null ? Number(x.gross_profit) : amount - cost;
+    });
+    var salesRows = recipes.map(function (r) {
+      var t = soldBy[r.id] || { qty: 0, amount: 0, cost: 0, profit: 0 };
+      return { name: r.name, qty: t.qty, amount: t.amount, cost: t.cost, profit: t.profit };
+    }).sort(function (a, b) { return b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name); });
+    var tot = { qty: 0, amount: 0, cost: 0, profit: 0 };
+    salesRows.forEach(function (r) { tot.qty += r.qty; tot.amount += r.amount; tot.cost += r.cost; tot.profit += r.profit; });
+    var salesBody = salesRows.map(function (r, i) { return [i + 1, r.name, r.qty + " pcs", money(r.amount), money(r.cost), money(r.profit)]; });
+    salesBody.push(["", "Total", tot.qty + " pcs", money(tot.amount), money(tot.cost), money(tot.profit)]);
+    doc.autoTable(Object.assign({}, tableBase, {
+      startY: y,
+      head: [["No.", "Bread Name", "Pieces Sold", "Total Sales", "Food Cost", "Profit"]],
+      body: salesBody,
+      columnStyles: { 0: { cellWidth: 32, halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } },
+      didParseCell: function (d) {
+        alignHead(d, [2, 3, 4, 5], [0]);
+        if (d.section === "body" && d.row.index === salesBody.length - 1) {
+          d.cell.styles.fontStyle = "bold"; d.cell.styles.fontSize = 10; d.cell.styles.textColor = CRUST;
+          if (d.column.index === 3) d.cell.styles.textColor = [165, 81, 31];
+          if (d.column.index === 4) d.cell.styles.textColor = [30, 95, 135];
+          if (d.column.index === 5) d.cell.styles.textColor = GOOD;
+        }
+      }
+    }));
+    y = doc.lastAutoTable.finalY;
+    if (!salesRows.length) {
+      doc.setFont(F.text, "normal"); doc.setFontSize(10); setC(MOCHA);
+      doc.text("No recipes available.", M, y + 18); y += 24;
+    }
+    y += 30;
+
+    // ---- 7. Pre-baking profit forecast (only when figures were entered on the page) ----
+    var sec = 7;
+    var fc = extra && extra.forecast;
+    if (fc && fc.pcs > 0) {
+      y = sectionTitle("7.  Pre-Baking Profit Forecast", y);
+      doc.autoTable(Object.assign({}, tableBase, {
+        startY: y,
+        head: [["Bread Item", "Pieces to Bake", "Waste", "Expected Revenue", "Expected Food Cost", "Expected Gross Profit", "Expected Margin"]],
+        body: [[fc.name, fc.pcs.toLocaleString("en-US"), fc.wastePct + "%", money(fc.revenue), money(fc.foodCost), money(fc.grossProfit), pct2(fc.margin)]],
+        styles: Object.assign({}, tableBase.styles, { fontSize: 8.5 }),
+        headStyles: Object.assign({}, tableBase.headStyles, { fontSize: 7.5 }),
+        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right", fontStyle: "bold", textColor: GOOD }, 6: { halign: "right" } },
+        didParseCell: function (d) { alignHead(d, [1, 2, 3, 4, 5, 6], []); }
+      }));
+      y = doc.lastAutoTable.finalY;
+      doc.setFont(F.text, "italic"); doc.setFontSize(8); setC(MOCHA);
+      doc.text("This is a projection only. It is not counted as a real sale.", M, y + 14);
+      y += 44; sec = 8;
+    }
+
+    // ---- Notes ----
+    y = sectionTitle(sec + ".  Notes", y);
     var notes = [
       "All amounts are expressed in Philippine Pesos (PHP).",
       "Net profit is presented equal to gross profit; no operating expenses are deducted in this report.",
@@ -3798,6 +3918,7 @@
       document.getElementById("stat-net-profit").textContent = peso(gross);
     }
 
+    // Every bread, ranked by profit margin per piece.
     function renderRanking() {
       var tbody = document.getElementById("ranking-body");
       tbody.innerHTML = "";
@@ -3821,6 +3942,47 @@
           "<td>" + peso(r.profit) + "</td><td>" + pct2(r.margin) + "</td><td>" + status + "</td>";
         tbody.appendChild(tr);
       });
+    }
+
+    // Separate table: what each bread actually sold in the chosen date range.
+    // Every bread is listed (0 if it had no sales), best seller first.
+    function renderBreadSales(sales) {
+      var tbody = document.getElementById("bread-sales-body");
+      if (!tbody) return;
+      tbody.innerHTML = "";
+      if (!recipes.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No recipes yet.</td></tr>';
+        return;
+      }
+      var sold = {};
+      (sales || []).forEach(function (x) {
+        var t = sold[x.recipe_id] || (sold[x.recipe_id] = { qty: 0, amount: 0, cost: 0, profit: 0 });
+        var amount = Number(x.total_amount) || 0, cost = Number(x.food_cost) || 0;
+        t.qty += Number(x.quantity) || 0;
+        t.amount += amount;
+        t.cost += cost;
+        t.profit += x.gross_profit != null ? Number(x.gross_profit) : amount - cost;
+      });
+      var rows = recipes.map(function (r) {
+        var t = sold[r.id] || { qty: 0, amount: 0, cost: 0, profit: 0 };
+        return { name: r.name, qty: t.qty, amount: t.amount, cost: t.cost, profit: t.profit };
+      }).sort(function (a, b) { return b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name); });
+
+      var total = { qty: 0, amount: 0, cost: 0, profit: 0 };
+      rows.forEach(function (r, i) {
+        total.qty += r.qty; total.amount += r.amount; total.cost += r.cost; total.profit += r.profit;
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + (i + 1) + "</td><td>" + r.name + "</td><td>" + r.qty + " pcs</td>" +
+          "<td>" + peso(r.amount) + "</td><td>" + peso(r.cost) + "</td><td>" + peso(r.profit) + "</td>";
+        tbody.appendChild(tr);
+      });
+      var totalRow = document.createElement("tr");
+      totalRow.className = "total-row";
+      totalRow.innerHTML =
+        "<td></td><td><strong>Total</strong></td><td><strong>" + total.qty + " pcs</strong></td>" +
+        "<td><strong>" + peso(total.amount) + "</strong></td><td><strong>" + peso(total.cost) + "</strong></td><td><strong>" + peso(total.profit) + "</strong></td>";
+      tbody.appendChild(totalRow);
     }
 
 
@@ -3927,7 +4089,7 @@
       return rows;
     }
 
-    var trendLoadId = 0;
+    var trendLoadId = 0, lastTrend = null;
     async function loadTrendChart(mode) {
       var el = document.getElementById("chart-trend");
       if (!el) return;
@@ -3958,6 +4120,7 @@
           }
         }
       });
+      lastTrend = { mode: mode, title: titles[mode], sub: subs[mode], buckets: buckets };
       renderTrendChart(buckets);
     }
 
@@ -4110,6 +4273,7 @@
       headingEl.textContent = headingByRange[rangeKey] || "Sales";
       var sales = await fetchSales(rangeKey);
       await renderTotals(sales);
+      renderBreadSales(sales);
       renderCharts(sales, rangeKey);
     }
 
@@ -4196,7 +4360,10 @@
       btn.disabled = true;
       btn.textContent = "Generating\u2026";
       var sales = await fetchSales(rangeSelect.value);
-      await exportReportToPdf(rangeSelect.value, sales, recipes);
+      var fcSel = document.getElementById("forecast-bread-item");
+      var fc = recomputeForecast();
+      fc.name = fcSel.options[fcSel.selectedIndex] ? fcSel.options[fcSel.selectedIndex].textContent : "";
+      await exportReportToPdf(rangeSelect.value, sales, recipes, { trend: lastTrend, forecast: fc });
       btn.disabled = false;
       btn.textContent = originalText;
     });
