@@ -1,17 +1,3 @@
-/* ==========================================================================
-   DRR Bakery — Shared Script
-   Auth pages (index/signup/forgot-password) + App pages
-   (dashboard/recipes/recipe-form/recipe-view/inventory/admin/
-    invite-account/edit-account/profile/record-sale/analytics)
-
-   NOTE: Data is stored in Supabase (see supabase-schema.sql). This file
-   expects a Supabase client named `supabaseClient`. If your page already
-   creates one (e.g. in supabase-config.js loaded BEFORE this file), that
-   one is used. Otherwise fill in the two values in the bootstrap below.
-   ========================================================================== */
-
-/* Load the brand fonts without blocking the first paint (the old CSS @import
-   made the browser show a blank page until Google Fonts answered). */
 (function () {
   if (document.getElementById("drr-fonts")) return;
   var l = document.createElement("link");
@@ -20,15 +6,10 @@
   document.head.appendChild(l);
 })();
 
-/* --------------------------------------------------------------------------
-   Supabase bootstrap — only creates the client if one doesn't already exist.
-   Load the Supabase library BEFORE this file:
-   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-   -------------------------------------------------------------------------- */
 (function () {
-  if (typeof supabaseClient !== "undefined") return; // already created elsewhere
-  var url = "YOUR_SUPABASE_URL";           // e.g. https://xxxx.supabase.co
-  var key = "YOUR_SUPABASE_ANON_KEY";      // the public anon key
+  if (typeof supabaseClient !== "undefined") return;
+  var url = "YOUR_SUPABASE_URL";
+  var key = "YOUR_SUPABASE_ANON_KEY";
   if (url.indexOf("YOUR_") === 0 || key.indexOf("YOUR_") === 0) {
     console.error("script.js: supabaseClient is not defined. Fill in the URL and anon key at the top of script.js, or load your config file before it.");
     return;
@@ -40,7 +21,6 @@
   window.supabaseClient = window.supabase.createClient(url, key);
 })();
 
-
 (function () {
   "use strict";
 
@@ -48,12 +28,10 @@
   var REMEMBER_KEY = "drrBakeryRememberedEmail";
   var SESSION_KEY = "drrBakerySession";
 
-  // Phone number shown in the footer of every page. Change it here (and only here).
   var CONTACT_PHONE = "+63 000 000 0000";
 
   var ROLES = ["Super Admin", "Admin", "Staff"];
 
-  // Which roles may open each page. Pages not listed are open to any logged-in role.
   var ROUTE_ROLES = {
     "admin.html": ["Super Admin"],
     "invite-account.html": ["Super Admin"],
@@ -62,10 +40,6 @@
     "analytics.html": ["Admin", "Super Admin"],
     "recipe-form.html": ["Admin", "Super Admin"]
   };
-
-  /* =======================================================================
-     Users / auth storage helpers
-     ======================================================================= */
 
   function getUsers() {
     try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; }
@@ -85,11 +59,6 @@
     return null;
   }
 
-  /* ---- Names: first / middle / last ----
-     Profiles keep a combined full_name (used everywhere for display) and, once
-     supabase-name-fields.sql has been run, separate first_name / middle_name /
-     last_name columns. Older accounts without those columns are split by
-     position: first word = first name, last word = last name, the rest = middle. */
   function splitFullName(full) {
     var p = String(full || "").trim().split(/\s+/).filter(Boolean);
     if (p.length <= 1) return { first: p[0] || "", middle: "", last: "" };
@@ -191,10 +160,6 @@
     });
   }
 
-  /* =======================================================================
-     Sign Up page
-     ======================================================================= */
-
   function initSignupForm() {
     var form = document.getElementById("signup-form");
     if (!form) return;
@@ -208,7 +173,7 @@
     var params = new URLSearchParams(window.location.search);
     var inviteId = params.get("invite");
     var invitedRecord = null;
-    var setupMode = params.get("setup") === "1";   // arrived from the emailed confirmation link
+    var setupMode = params.get("setup") === "1";
     var confirmedSession = null;
 
     function showBlocked(message, heading) {
@@ -223,8 +188,6 @@
 
     async function setup() {
       if (setupMode) {
-        // They clicked the confirmation email: Supabase has already confirmed the
-        // email and signed them in. All that's left is their name + a password.
         var sess = await getSessionResilient();
         var smeta = (sess && sess.user && sess.user.user_metadata) || {};
         if (!sess) {
@@ -306,7 +269,6 @@
       var fullName = joinName(firstName, middleName, lastName);
 
       if (confirmedSession) {
-        // Email already confirmed: set the password, save the name, go to the app.
         var upd = await supabaseClient.auth.updateUser({
           password: password,
           data: { full_name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName, account_setup_done: true }
@@ -318,7 +280,6 @@
         }
         var saved = await supabaseClient.rpc("complete_account_setup", { p_first: firstName, p_middle: middleName, p_last: lastName });
         if (saved.error) {
-          // Fallback if the SQL helper hasn't been installed: update the profile row directly.
           saved = await supabaseClient.from("profiles").update({ full_name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName }).eq("id", confirmedSession.user.id);
           if (saved.error) {
             saved = await supabaseClient.from("profiles").update({ full_name: fullName }).eq("id", confirmedSession.user.id);
@@ -331,10 +292,6 @@
         return;
       }
 
-      // The profile row, role, invite status and activity log entry are now
-      // created server-side by the handle_new_user trigger (see fix-signup.sql),
-      // because with email confirmation ON there is no session after signUp,
-      // so the browser can't insert into profiles itself.
       var signUpResult = await supabaseClient.auth.signUp({
         email: email,
         password: password,
@@ -351,7 +308,6 @@
 
       form.reset();
       if (signUpResult.data.session) {
-        // Email confirmation is OFF: user is already signed in.
         await supabaseClient.auth.signOut();
         showAlert(alertEl, "success", "Account created! Redirecting you to log in\u2026");
       } else {
@@ -361,10 +317,6 @@
     });
   }
 
-  /* =======================================================================
-     Log In page
-     ======================================================================= */
-
   function initLoginForm() {
     var form = document.getElementById("login-form");
     if (!form) return;
@@ -372,7 +324,6 @@
     var emailInput = document.getElementById("email");
     var rememberInput = document.getElementById("remember");
 
-    // Only offer "Sign Up" while there is no account yet (first-time setup)
     var signupPrompt = document.getElementById("signup-prompt");
     if (signupPrompt) {
       supabaseClient.rpc("profiles_count").then(function (res) {
@@ -443,10 +394,6 @@
     });
   }
 
-  /* =======================================================================
-     Forgot Password page
-     ======================================================================= */
-
   function initForgotPasswordForm() {
     var form = document.getElementById("forgot-password-form");
     if (!form) return;
@@ -478,13 +425,6 @@
     });
   }
 
-    /* =======================================================================
-     Set New Password page (reset-password.html) — where the link from the
-     reset email actually lands. Supabase's client auto-detects the
-     access_token in the URL and fires a PASSWORD_RECOVERY auth event once
-     it's parsed the session from that link.
-     ======================================================================= */
-
   function initResetPasswordForm() {
     var form = document.getElementById("reset-password-form");
     if (!form) return;
@@ -501,16 +441,13 @@
       form.style.display = "none";
     }
 
-    // Case 1: Supabase already finished parsing the link by the time this runs.
     supabaseClient.auth.getSession().then(function (result) {
       if (result.data && result.data.session) sessionReady = true;
       else if (window.location.hash.indexOf("type=recovery") === -1) {
-        // No token in the URL at all and no session — this page was opened directly.
         setTimeout(function () { if (!sessionReady) showInvalidLink(); }, 1500);
       }
     });
 
-    // Case 2: the PASSWORD_RECOVERY event fires once Supabase parses the link.
     supabaseClient.auth.onAuthStateChange(function (event) {
       if (event === "PASSWORD_RECOVERY") sessionReady = true;
     });
@@ -558,14 +495,6 @@
     });
   }
 
-
-  /* =======================================================================
-     App data layer — shared across every app page
-     Business data (ingredients, recipes, bread inventory, sales, forecasts)
-     lives in real Supabase tables — see supabase-schema.sql. Every browser,
-     every account, every device reads and writes the same shared data.
-     ======================================================================= */
-
   function todayLabel() {
     return new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
   }
@@ -575,12 +504,10 @@
     return s && s.id ? s.id : null;
   }
 
-  /* ---- toast (shared across app pages) ---- */
   var pageIsUnloading = false;
   window.addEventListener("pagehide", function () { pageIsUnloading = true; });
   window.addEventListener("beforeunload", function () { pageIsUnloading = true; });
   window.addEventListener("pageshow", function () { pageIsUnloading = false; });
-  // Requests cancelled by a refresh are expected - don't surface them as errors.
   window.addEventListener("unhandledrejection", function (e) { if (pageIsUnloading) e.preventDefault(); });
 
   function toast(msg) {
@@ -618,9 +545,6 @@
     }
   }
 
-  /* ---- Ingredients ---- */
-
-  // The only categories a raw ingredient can belong to (used by the dropdowns).
   var INGREDIENT_CATEGORIES = [
     "Flour & Grains",
     "Sugars & Sweeteners",
@@ -632,10 +556,7 @@
     "Add-ins & Toppings"
   ];
 
-  // Builds <option> tags. If an older ingredient has a category that is not in the
-  // list, it is kept as an extra option so editing it never silently changes it.
   function categoryOptionsHtml(selected, withPlaceholder) {
-    // The placeholder is only the prompt shown before choosing - it is hidden from the dropdown list itself.
     var html = withPlaceholder ? '<option value="" disabled selected hidden>Select category</option>' : "";
     var list = INGREDIENT_CATEGORIES.slice();
     if (selected && list.indexOf(selected) === -1) list.push(selected);
@@ -645,10 +566,8 @@
     return html;
   }
 
-  // Units that can be converted into each other: weight (g, kg), volume (ml, L) and count (pc).
   var UNIT_FAMILY = { g: ["w", 1], kg: ["w", 1000], ml: ["v", 1], L: ["v", 1000], pc: ["c", 1] };
 
-  // How many "to" units are in one "from" unit (e.g. kg -> g = 1000). Returns null if they can't be converted (e.g. kg -> ml).
   function unitFactor(from, to) {
     var a = UNIT_FAMILY[from], b = UNIT_FAMILY[to];
     if (!a || !b || a[0] !== b[0]) return null;
@@ -661,13 +580,9 @@
     }).join("");
   }
 
-  // Cost per unit can be a fraction of a peso (e.g. flour is about P0.05/g), so never round it to 2 decimals.
-  // Money & percentage display: always exactly 2 decimals (centavos), never rounded to whole pesos.
-  // Calculations keep full precision; only what is SHOWN (or stored as a sale amount) is rounded to the centavo.
   function r2(n) { return Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100; }
   function peso(n) { return "\u20B1" + r2(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function pct2(n) { return r2(n).toFixed(2) + "%"; }
-  // Ingredient cost the way a bakery lists it: per kg, per liter or per piece (stored per g / ml / pc).
   function fmtCostPer(cost, unit) {
     var c = Number(cost) || 0, u = unit;
     if (unit === "g") { c *= 1000; u = "kg"; }
@@ -675,10 +590,8 @@
     return peso(c) + " / " + u;
   }
 
-  // Stops tiny floating-point leftovers (e.g. 22999.999999997) from being stored as stock.
   function round4(n) { return Math.round((Number(n) || 0) * 10000) / 10000; }
 
-  // Quantity for display: up to 2 decimals, no trailing zeros (2.46 stays 2.46, 16 stays 16).
   function fmtQty(n) { return Number(Number(n).toFixed(2)).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
 
   function fmtUnitCost(n) {
@@ -686,7 +599,6 @@
     return v >= 1 ? v.toFixed(2) : v.toFixed(4);
   }
 
-  // Ingredient prices changed -> keep every recipe that uses it in sync (line costs, batch cost, cost per piece).
   async function recalcRecipesForIngredient(ingredientId, newCostPerUnit) {
     try {
       var linesRes = await supabaseClient.from("recipe_ingredients").select("id, recipe_id, quantity").eq("ingredient_id", ingredientId);
@@ -708,7 +620,7 @@
           updated_at: new Date().toISOString()
         }).eq("id", rid);
       }
-    } catch (e) { /* recipe costs will refresh next time the recipe is saved */ }
+    } catch (e) { }
   }
 
   async function fetchIngredients() {
@@ -727,10 +639,6 @@
     return await supabaseClient.from("ingredients").update(fields).eq("id", id);
   }
 
-  /* ---- Recipes (+ their ingredient line items) ---- */
-
-  // Recipe costs must always follow today's inventory prices. This re-prices every recipe line
-  // (quantity x current cost per unit) and updates batch cost / cost per piece wherever they differ.
   var recipeSyncPromise = null;
   async function syncAllRecipeCosts() {
     try {
@@ -759,7 +667,7 @@
           await supabaseClient.from("recipes").update({ total_batch_cost: total, cost_per_piece: cpp, updated_at: new Date().toISOString() }).eq("id", rec.id);
         }
       }
-    } catch (e) { /* not allowed or offline: pages still show correct live costs where they re-price lines */ }
+    } catch (e) { }
   }
   function ensureRecipeCostsSynced() {
     if (getCurrentRole() === "Staff") return Promise.resolve();
@@ -789,7 +697,6 @@
         category: row.ingredients ? row.ingredients.category : "",
         unit: row.unit,
         qty: row.quantity,
-        // Always priced at the ingredient's CURRENT inventory cost (falls back to the saved cost if it was deleted).
         lineCost: row.ingredients && row.ingredients.cost_per_unit != null ? row.quantity * row.ingredients.cost_per_unit : row.line_cost,
         stock: row.ingredients ? row.ingredients.stock_qty : null
       };
@@ -841,8 +748,6 @@
     return { data: { id: recipeId } };
   }
 
-  /* ---- Bread inventory (production batches) ---- */
-
   async function fetchBreadInventory() {
     var result = await supabaseClient
       .from("bread_inventory")
@@ -877,36 +782,60 @@
       .eq("id", batchId);
   }
 
-  /* ---- Sales ---- */
-
   function dateRangeStartISO(rangeKey) {
     var now = new Date();
     var start = new Date(now);
     if (rangeKey === "today") {
       start.setHours(0, 0, 0, 0);
-    } else if (rangeKey === "7days") {
+    } else if (rangeKey === "day") {
       start.setDate(start.getDate() - 6);
       start.setHours(0, 0, 0, 0);
-    } else if (rangeKey === "30days") {
-      start.setDate(start.getDate() - 29);
+    } else if (rangeKey === "week") {
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7) - 7 * 7);
+      start.setHours(0, 0, 0, 0);
+    } else if (rangeKey === "month") {
+      start.setMonth(start.getMonth() - 11, 1);
+      start.setHours(0, 0, 0, 0);
+    } else if (rangeKey === "year") {
+      start.setFullYear(start.getFullYear() - 4, 0, 1);
       start.setHours(0, 0, 0, 0);
     } else {
-      return null; // "all"
+      return null;
     }
     return start.toISOString();
   }
 
+  function periodInfo(key) {
+    var now = new Date();
+    var startISO = dateRangeStartISO(key);
+    var start = startISO ? new Date(startISO) : now;
+    var short = function (d) { return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
+    var full = function (d) { return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
+    var names = { today: "Today", day: "Last 7 days", week: "Last 8 weeks", month: "Last 12 months", year: "Last 5 years", all: "All time" };
+    var name = names[key] || "Today";
+    var range = key === "all" ? "all recorded sales" : (key === "today" ? full(now) : short(start) + " \u2013 " + full(now));
+    return { name: name, range: range, label: name + " (" + range + ")" };
+  }
+
   async function fetchSales(rangeKey) {
-    var query = supabaseClient.from("sales").select("*, recipes(name)").order("sale_datetime", { ascending: false });
     var startISO = dateRangeStartISO(rangeKey || "today");
-    if (startISO) query = query.gte("sale_datetime", startISO);
-    var result = await query;
-    return result.data || [];
+    var rows = [], from = 0, page = 1000;
+    for (var n = 0; n < 500; n++) {
+      var query = supabaseClient.from("sales").select("*, recipes(name)")
+        .order("sale_datetime", { ascending: false }).order("id", { ascending: false });
+      if (startISO) query = query.gte("sale_datetime", startISO);
+      var result = await query.range(from, from + page - 1);
+      if (result.error || !result.data) break;
+      rows = rows.concat(result.data);
+      if (result.data.length < page) break;
+      from += page;
+    }
+    return rows;
   }
 
   async function insertSale(recipeId, breadInventoryId, qty, unitPrice, foodCostPerUnit) {
-    unitPrice = r2(unitPrice);                 // prices are in centavos
-    var totalAmount = r2(qty * unitPrice);     // a receipt total is to the centavo
+    unitPrice = r2(unitPrice);
+    var totalAmount = r2(qty * unitPrice);
     var foodCost = qty * foodCostPerUnit;
     var grossProfit = totalAmount - foodCost;
     return await supabaseClient.from("sales").insert({
@@ -921,8 +850,6 @@
     }).select().single();
   }
 
-  /* ---- Profit forecasts (hypothetical — kept separate from real sales) ---- */
-
   async function insertForecast(recipeId, expectedUnits, wastePct, revenue, foodCost, grossProfit, marginPct) {
     return await supabaseClient.from("profit_forecast").insert({
       recipe_id: recipeId,
@@ -936,7 +863,6 @@
     });
   }
 
-  /* ---- shared header: login guard + account dropdown ---- */
   function currentPageFile() {
     return window.location.pathname.split("/").pop() || "dashboard.html";
   }
@@ -959,14 +885,9 @@
       } else if (role === "Admin") {
         if (href === "admin.html") a.closest("li").remove();
       }
-      // Super Admin sees the full nav as-is.
     });
   }
 
-  // Header navigation guard: stops rapid / repeated clicks from re-triggering
-  // navigation (which caused reloads and flicker). Clicking the page you are
-  // already on does nothing; once a navigation has started, further clicks
-  // on any nav link are ignored.
   function initNavClickGuard() {
     var navigating = false;
     var links = document.querySelectorAll(".app-nav a");
@@ -974,7 +895,7 @@
       a.addEventListener("click", function (e) {
         var href = a.getAttribute("href");
         var plainClick = !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1);
-        if (!plainClick) return; // let "open in new tab" work normally
+        if (!plainClick) return;
         if (navigating || href === currentPageFile()) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -985,21 +906,16 @@
         a.classList.add("nav-pending");
       });
     });
-    // If the page is restored from the back/forward cache, allow clicking again.
     window.addEventListener("pageshow", function (e) { if (e.persisted) navigating = false; });
   }
 
-  // Reading the Supabase session can briefly come back empty (or throw) when a
-  // page is refreshed many times in a row, because the previous page load may
-  // still be holding the auth lock. Retry a few times before treating the user
-  // as logged out, so quick refreshes never kick someone to the login page.
   async function getSessionResilient() {
     var attempts = 4;
     for (var i = 0; i < attempts; i++) {
       try {
         var res = await supabaseClient.auth.getSession();
         if (res && res.data && res.data.session) return res.data.session;
-      } catch (e) { /* retry */ }
+      } catch (e) { }
       if (i < attempts - 1) await new Promise(function (r) { setTimeout(r, 120 * (i + 1)); });
     }
     return null;
@@ -1009,8 +925,6 @@
     var avatarBtn = document.getElementById("avatar-btn");
     if (!avatarBtn) return;
 
-    // Check the REAL Supabase session (persists across tabs/refreshes),
-    // and refresh our lightweight sessionStorage mirror from it.
     var supaSession = await getSessionResilient();
     if (!supaSession) {
       sessionStorage.removeItem(SESSION_KEY);
@@ -1018,17 +932,12 @@
       return false;
     }
 
-    // Someone who clicked an invite email but hasn't added their name/password yet
-    // must finish sign-up first.
     var meta = (supaSession.user && supaSession.user.user_metadata) || {};
     if (meta.account_setup_done === false) {
       window.location.href = "signup.html?setup=1";
       return false;
     }
 
-    // Fast path: if this tab already knows who is logged in, render immediately
-    // from that and double-check the profile in the background. This removes one
-    // network round-trip from every page load / refresh.
     var cached = null;
     try { cached = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null"); } catch (e) { cached = null; }
     var profilePromise = supabaseClient.from("profiles").select("*").eq("id", supaSession.user.id).maybeSingle();
@@ -1036,7 +945,7 @@
     if (cached && cached.id === supaSession.user.id && cached.role && (cached.fullName || cached.firstName)) {
       profile = { full_name: cached.fullName || cached.firstName, email: cached.email, role: cached.role, status: "Active" };
       profilePromise.then(async function (r) {
-        if (pageIsUnloading || !r || r.error) return;       // network hiccup: keep going
+        if (pageIsUnloading || !r || r.error) return;
         var p = r.data;
         if (!p || p.status !== "Active") {
           await supabaseClient.auth.signOut();
@@ -1061,12 +970,6 @@
     var session = { id: supaSession.user.id, firstName: firstName, fullName: profile.full_name, email: profile.email, role: profile.role };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 
-    // Enforce which roles may open this page — with one narrow exception:
-    // if the whole system currently has ZERO Super Admins (e.g. the sole
-    // Super Admin's row was removed outside the app), an Admin is allowed
-    // onto the account-management pages just long enough to promote
-    // someone back into that role. The moment a Super Admin exists again,
-    // this exception stops applying.
     var page = currentPageFile();
     var allowedRoles = ROUTE_ROLES[page];
     var recoveryPages = ["admin.html", "edit-account.html", "invite-account.html"];
@@ -1075,7 +978,7 @@
     if (!isAllowed && session.role === "Admin" && recoveryPages.indexOf(page) !== -1) {
       var superAdminCheck = await supabaseClient.from("profiles").select("id").eq("role", "Super Admin").limit(1);
       if (!superAdminCheck.data || !superAdminCheck.data.length) {
-        isAllowed = true; // recovery mode: no Super Admin exists anywhere right now
+        isAllowed = true;
       }
     }
 
@@ -1137,25 +1040,13 @@
     return true;
   }
 
-  /* =======================================================================
-     AI Assistant — floating chat widget (site-wide)
-     Rule-based insights generated live from your real Supabase data —
-     no external AI API is called, so this works fully offline of any key.
-     ======================================================================= */
-
   var RESTRICTED_REPLY = "Sorry, you don't have permission to access pricing or profitability information.";
 
-  // Fetches role-shaped data from the backend. This is the ONLY place the
-  // chat gets its numbers from — the Postgres function get_ai_chat_context()
-  // checks the caller's real role server-side and simply never includes
-  // cost/price/revenue/profit fields for Staff, no matter what's asked.
   async function fetchAiChatContext() {
     var result = await supabaseClient.rpc("get_ai_chat_context");
     return result.data || { role: getCurrentRole(), is_privileged: false, recipes: [], ingredients: [], sales: [], low_stock: [], target_food_cost_pct: 30 };
   }
 
-  // Turns the raw context into ranked, ready-to-quote facts. Every number
-  // in the eventual chat reply traces back to something in this object.
   function analyzeContext(ctx) {
     var isPrivileged = !!ctx.is_privileged;
 
@@ -1206,8 +1097,6 @@
       hasAnyRecipes: ctx.recipes.length > 0, hasAnySales: ctx.sales.length > 0
     };
   }
-
-  // ---- Recommendation Engine: each fn below explains WHY, grounded in a.* figures ----
 
   function recIncreaseProfit(a) {
     if (!a.margins.length) return "I don't have enough recipe pricing data yet to ground a recommendation \u2014 add selling prices to your recipes first.";
@@ -1263,7 +1152,7 @@
   }
 
   function recRemoveProducts(a) {
-    if (!a.isPrivileged) return null; // handled by restriction check before this is called
+    if (!a.isPrivileged) return null;
     var candidates = a.margins.filter(function (m) {
       var unsoldMatch = a.unsold.some(function (u) { return u.name === m.name; });
       return m.margin < 25 || unsoldMatch;
@@ -1281,7 +1170,6 @@
   }
 
   var INTENTS = [
-    // ---- Safe for every role (no cost/price/revenue/profit involved) ----
     { pattern: /low.?stock|restock|running out/i, restricted: false, handler: function (a) {
       return a.lowStock.length
         ? "These are running low: " + a.lowStock.map(function (i) { return i.name + " (" + i.stock_qty + " " + i.unit + " left)"; }).join(", ") + "."
@@ -1308,7 +1196,6 @@
         : "Ask me about stock levels, low-stock alerts, or best sellers. Pricing and profit details are limited to Admin and Super Admin accounts.";
     }},
 
-    // ---- Restricted: profit, margin, pricing, cost, revenue, recommendations ----
     { pattern: /increase.*profit|higher profit|profit higher|improve.*profit|profitability|recommend.*(improv|business)/i, restricted: true, handler: recIncreaseProfit },
     { pattern: /best.*margin|highest.*margin/i, restricted: true, handler: recBestMargin },
     { pattern: /worst.*margin|lowest.*margin|low.*margin/i, restricted: true, handler: recWorstMargin },
@@ -1331,14 +1218,13 @@
         if (result) return result;
       }
     }
-    // Fallback: general/off-topic question this rule-based assistant can't ground in data.
     return a.isPrivileged
       ? "I'm focused on your bakery's own data \u2014 recipes, pricing, sales, and stock. Try asking about margins, best sellers, low stock, or how to improve profit."
       : "I'm focused on your bakery's own data \u2014 stock levels and best sellers. Try asking about those.";
   }
 
   function initAiChatWidget() {
-    if (document.getElementById("ai-chat-fab")) return; // already initialized (shouldn't happen, but just in case)
+    if (document.getElementById("ai-chat-fab")) return;
 
     var fab = document.createElement("button");
     fab.type = "button";
@@ -1481,10 +1367,6 @@
     });
   }
 
-  /* =======================================================================
-     Dashboard page
-     ======================================================================= */
-
   function computeAverageFoodCostPct(recipes) {
     if (!recipes.length) return 0;
     var total = 0, count = 0;
@@ -1525,9 +1407,6 @@
     await renderTopBreadDonut();
   }
 
-  /* ---- Money axes for charts: ₱1K, ₱2K, ₱5K, ₱10K ... ----
-     Picks a "nice" step (1, 2 or 5 x 10^n, never below 1K) so the top of the axis
-     is at least floorMax and grows automatically when sales are bigger. */
   function axisScale(top, floorMax, ticks, startPow) {
     var need = Math.max(top || 0, floorMax || 0, 1);
     var mult = [1, 2, 5];
@@ -1568,7 +1447,6 @@
       else if (d.getFullYear() === currentYear - 1) past[m] += r.total_amount;
     });
 
-    // Axis starts at a readable scale (₱0 - ₱10K in ₱2K steps) and grows with sales.
     var dashScale = axisScale(Math.max.apply(null, current.concat(past)), 10000, 5);
     var maxVal = dashScale.max;
     var showCurrent = true, showPast = true;
@@ -1701,7 +1579,7 @@
     wrap.style.display = "";
 
     var myId = currentUserId();
-    var todaySales = await fetchSales("today"); // RLS already scopes Staff to their own rows
+    var todaySales = await fetchSales("today");
     var mySales = todaySales.filter(function (s) { return s.logged_by === myId; });
 
     var totalRevenue = mySales.reduce(function (sum, s) { return sum + s.total_amount; }, 0);
@@ -1745,10 +1623,6 @@
 
     await renderAdminDashboard();
   }
-
-  /* =======================================================================
-     Recipes & Costing — list page (recipes.html)
-     ======================================================================= */
 
   async function initRecipesListPage() {
     var tbody = document.getElementById("recipes-list-body");
@@ -1803,10 +1677,6 @@
     render();
   }
 
-  /* =======================================================================
-     Recipes & Costing — create/edit form (recipe-form.html)
-     ======================================================================= */
-
   async function initRecipeFormPage() {
     var body = document.getElementById("recipe-ingredients-body");
     if (!body) return;
@@ -1847,7 +1717,6 @@
       });
     }
 
-    // Quantity can be typed in g or kg (ml or L), whatever is handy; it is converted to the inventory unit.
     var ingUnitSelect = document.getElementById("input-ing-unit");
     var pickHint = document.getElementById("ing-pick-hint");
     function refreshPicker() {
@@ -1892,10 +1761,9 @@
       if (!ing || !qty || qty <= 0) { toast("Pick an ingredient and enter a quantity."); return; }
       var qtyFactor = unitFactor(ingUnitSelect.value || ing.unit, ing.unit);
       if (qtyFactor === null) { toast("That unit doesn't match " + ing.name + " (" + ing.unit + ")."); return; }
-      var qtyBase = round4(qty * qtyFactor); // quantity in the inventory unit
+      var qtyBase = round4(qty * qtyFactor);
       var sameLine = lineItems.find(function (l) { return l.ingredientId === ing.id; });
       if (sameLine) {
-        // Same ingredient twice in one recipe = one line with the combined quantity.
         sameLine.qty = round4(sameLine.qty + qtyBase);
         sameLine.lineCost = ing.cost_per_unit * sameLine.qty;
       } else {
@@ -1985,7 +1853,6 @@
       var saveBtn = document.getElementById("save-recipe-btn");
       saveBtn.disabled = true;
 
-      // Don't allow two recipes with the same name.
       var dupe = await supabaseClient.from("recipes").select("id").ilike("name", name.replace(/[%_]/g, "\\$&"));
       var sameName = (dupe.data || []).filter(function (r) { return String(r.id) !== String(editingId); });
       if (sameName.length) {
@@ -2005,11 +1872,9 @@
         toast("Couldn't save recipe: " + result.error.message);
         return;
       }
-      // Success: leave the button disabled until the page moves on, so it can't be saved twice.
 
       await logActivitySupa((editingId ? "Updated recipe - " : "Saved recipe - ") + name);
 
-      // Active warning if the recipe's own current selling price is a loss risk.
       if (totals.costPerPiece > 0 && sellingPrice > 0) {
         var pct = (totals.costPerPiece / sellingPrice) * 100;
         var isLoss = targetPct ? pct > targetPct : pct > 45;
@@ -2067,10 +1932,6 @@
     }
   }
 
-  /* =======================================================================
-     Recipes & Costing — view page (recipe-view.html)
-     ======================================================================= */
-
   async function initRecipeViewPage() {
     var body = document.getElementById("view-ingredients-body");
     if (!body) return;
@@ -2099,13 +1960,10 @@
       body.appendChild(tr);
     });
 
-    // Totals come from the same live-priced lines shown above, so the page always adds up.
     var viewTotal = lineItems.reduce(function (sum, i) { return sum + i.lineCost; }, 0);
     document.getElementById("view-total-batch-cost").textContent = peso(viewTotal);
     document.getElementById("view-cost-per-piece").textContent = peso(recipe.base_batch_size > 0 ? viewTotal / recipe.base_batch_size : 0);
 
-    // Real yield %: average(actual pieces baked) vs the recipe's planned batch size,
-    // across every production batch logged for this recipe.
     var batchResult = await supabaseClient.from("bread_inventory").select("quantity_baked").eq("recipe_id", id);
     var batches = batchResult.data || [];
     var yieldEl = document.getElementById("view-yield-pct");
@@ -2131,10 +1989,6 @@
     }
   }
 
-  /* =======================================================================
-     Inventory page (inventory.html)
-     ======================================================================= */
-
   async function initInventoryPage() {
     var body = document.getElementById("ingredient-stock-body");
     if (!body) return;
@@ -2142,7 +1996,6 @@
     var role = getCurrentRole();
     var isStaff = role === "Staff";
     if (isStaff) {
-      // Staff can see what's in stock, but not costs, and can't restock/edit/delete.
       var addIngBtn = document.getElementById("show-add-ingredient");
       if (addIngBtn) addIngBtn.style.display = "none";
       var headRow = body.closest("table").querySelector("thead tr");
@@ -2152,7 +2005,6 @@
     var ingredients = await fetchIngredients();
     var recipes = await fetchRecipes();
 
-    /* ---- Raw ingredients tab ---- */
     function renderIngredientTable() {
       body.innerHTML = "";
       if (!ingredients.length) {
@@ -2267,11 +2119,11 @@
                 '<button type="button" class="btn-dark" id="restock-save-' + ing.id + '">Add Stock</button>' +
               '</div>' +
             '</td>';
- 
+
           document.getElementById("restock-cancel-" + ing.id).addEventListener("click", function () {
             renderIngredientTable();
           });
- 
+
           document.getElementById("restock-save-" + ing.id).addEventListener("click", async function () {
             var qty = parseFloat(document.getElementById("restock-qty-" + ing.id).value);
             var price = parseFloat(document.getElementById("restock-price-" + ing.id).value);
@@ -2281,8 +2133,8 @@
               toast("That unit can't be converted to " + ing.unit + ". Pick a matching unit (g/kg, ml/L or pc).");
               return;
             }
-            var conversion = packSize * packFactor; // recipe units in ONE purchase unit
- 
+            var conversion = packSize * packFactor;
+
             if (!qty || qty <= 0 || isNaN(price) || price < 0) {
               toast("Enter a quantity purchased and a total price paid.");
               return;
@@ -2291,33 +2143,32 @@
               toast("Enter how much each purchase unit contains (greater than 0).");
               return;
             }
- 
+
             var costPerPurchaseUnit = price / qty;
             var latestCostPerUnit = costPerPurchaseUnit / conversion;
             var addedStock = qty * conversion;
             var oldStock = Number(ing.stock_qty) || 0;
             var newStockQty = round4(oldStock + addedStock);
-            // "average" blends what is left on the shelf (old price) with what was just bought (new price).
             var newCostPerUnit = latestCostPerUnit;
             if (document.getElementById("restock-method-" + ing.id).value === "average" && oldStock > 0) {
               newCostPerUnit = (oldStock * (Number(ing.cost_per_unit) || 0) + addedStock * latestCostPerUnit) / (oldStock + addedStock);
             }
- 
+
             var saveBtn = document.getElementById("restock-save-" + ing.id);
             saveBtn.disabled = true;
- 
+
             var result = await updateIngredient(ing.id, {
               cost_per_unit: newCostPerUnit,
               stock_qty: newStockQty,
               units_per_purchase: conversion
             });
- 
+
             if (result.error) {
               saveBtn.disabled = false;
               toast("Couldn't restock: " + result.error.message);
               return;
             }
- 
+
             await recalcRecipesForIngredient(ing.id, newCostPerUnit);
             ing.cost_per_unit = newCostPerUnit;
             ing.stock_qty = newStockQty;
@@ -2344,10 +2195,8 @@
           '</div>';
         }
 
-        // Edit the price you actually pay per purchase unit (e.g. per sack); cost per recipe unit is worked out from it.
         var upp = Number(ing.units_per_purchase) > 0 ? Number(ing.units_per_purchase) : 1;
         var puLabel = ing.purchase_unit || ing.unit;
-        // Bought loose by weight/volume (no package): show the familiar per-kg / per-liter price.
         var perKg = upp === 1 && (ing.unit === "g" || ing.unit === "ml") && (!ing.purchase_unit || ing.purchase_unit === ing.unit);
         var priceFactor = perKg ? 1000 : upp;
         var priceLabelUnit = perKg ? (ing.unit === "g" ? "kg" : "L") : puLabel;
@@ -2391,7 +2240,6 @@
           var category = document.getElementById("edit-category-" + ing.id).value;
           var supplier = document.getElementById("edit-supplier-" + ing.id).value.trim();
           var priceEntered = parseFloat(document.getElementById("edit-price-" + ing.id).value);
-          // Untouched price keeps the exact stored cost (no rounding drift); a changed price is converted per recipe unit.
           var cost = Math.abs(priceEntered - shownPrice) < 1e-9 ? Number(ing.cost_per_unit) : priceEntered / priceFactor;
           var stock = parseFloat(document.getElementById("edit-stock-" + ing.id).value);
           var lowRaw = document.getElementById("edit-low-" + ing.id).value;
@@ -2471,7 +2319,6 @@
       document.getElementById("ing-pack-group").style.display = hasPackage ? "" : "none";
       document.getElementById("ing-qty-label").textContent = "Quantity purchased (" + purchaseUnit + (hasPackage ? "s" : "") + ")";
       if (!hasPackage) {
-        // Bought straight in the recipe unit: nothing to convert.
         document.getElementById("ing-pack-size").value = "1";
         document.getElementById("ing-pack-unit").value = unit;
       }
@@ -2491,9 +2338,9 @@
         hintEl.textContent = "1 " + label + " = " + packSize + " " + packUnit +
           (packUnit !== unit ? "  \u2192  " + conversion.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + unit + " in your recipes" : "");
       }
- 
+
       var purchaseNote = document.getElementById("ing-cost-preview-purchase");
- 
+
       if (qty > 0 && price >= 0 && conversion > 0) {
         var costPerPurchaseUnit = price / qty;
         var costPerRecipeUnit = costPerPurchaseUnit / conversion;
@@ -2506,8 +2353,7 @@
         purchaseNote.textContent = "";
       }
     }
-    // Pack fields start out matching the recipe unit; keep them compatible when the recipe unit changes.
-    var packUnitTouched = false; // true once the person picks the package's unit themselves
+    var packUnitTouched = false;
     function resetPackFields() {
       packUnitTouched = false;
       document.getElementById("ing-pack-size").value = "1";
@@ -2518,7 +2364,6 @@
     document.getElementById("ing-unit").addEventListener("change", function () {
       var u = document.getElementById("ing-unit").value;
       var packUnitEl = document.getElementById("ing-pack-unit");
-      // The package unit follows the recipe unit until it is chosen by hand (or if it no longer fits).
       if (!packUnitTouched || unitFactor(packUnitEl.value, u) === null) packUnitEl.value = u;
     });
     document.getElementById("ing-purchase-unit").addEventListener("change", function () {
@@ -2544,12 +2389,12 @@
         toast("Each purchase unit must use a unit that matches the recipe unit (g/kg, ml/L or pc).");
         return;
       }
-      var conversion = packSize * packFactor; // recipe units in ONE purchase unit (e.g. 1 sack of 25 kg = 25000 g)
+      var conversion = packSize * packFactor;
       var purchaseUnit = document.getElementById("ing-purchase-unit").value.trim() || (conversion === 1 ? unit : "pack");
       var startStockInput = document.getElementById("ing-start-stock").value;
       var startStock = startStockInput !== "" ? parseFloat(startStockInput) : (qty * conversion || 0);
       var lowStockVal = document.getElementById("ing-low-stock").value;
- 
+
       if (!name || !qty || qty <= 0 || isNaN(totalPrice)) {
         toast("Fill in ingredient name, quantity purchased, and total price paid.");
         return;
@@ -2560,8 +2405,8 @@
         return;
       }
       var costPerPurchaseUnit = totalPrice / qty;
-      var costPerUnit = costPerPurchaseUnit / conversion; // cost per RECIPE unit — this is what recipes use
- 
+      var costPerUnit = costPerPurchaseUnit / conversion;
+
       var dupIng = ingredients.some(function (i) { return String(i.name || "").trim().toLowerCase() === name.toLowerCase(); });
       if (dupIng) { toast('"' + name + '" is already in your raw ingredient stock. Edit or restock it instead.'); return; }
 
@@ -2575,12 +2420,12 @@
         purchase_unit: purchaseUnit, units_per_purchase: conversion
       });
       saveBtn.disabled = false;
- 
+
       if (result.error) { toast("Couldn't save ingredient: " + result.error.message); return; }
- 
+
       ingredients.push(result.data);
       await logActivitySupa("Added raw ingredient - " + name);
- 
+
       ["ing-name","ing-category","ing-qty-purchased","ing-total-price","ing-supplier","ing-start-stock","ing-low-stock","ing-purchase-unit"].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.value = "";
@@ -2592,7 +2437,6 @@
       toast('"' + name + '" added to raw ingredient stock.');
     });
 
-    /* ---- Bread Stock tab ---- */
     var breadBody = document.getElementById("bread-stock-body");
     var breadBatches = await fetchBreadInventory();
 
@@ -2602,7 +2446,6 @@
         breadBody.innerHTML = '<tr><td colspan="6" class="empty-note">No bread stock logged yet.</td></tr>';
         return;
       }
-      // Aggregate by recipe.
       var totals = {};
       breadBatches.forEach(function (b) {
         var name = b.recipes ? b.recipes.name : "Unknown";
@@ -2611,7 +2454,6 @@
         totals[name].sold += b.quantity_sold;
         if (new Date(b.date_baked) > new Date(totals[name].lastBaked)) totals[name].lastBaked = b.date_baked;
       });
-      // Batches (morning / afternoon / evening) logged on each item's most recent baking day.
       breadBatches.forEach(function (b) {
         var name = b.recipes ? b.recipes.name : "Unknown";
         if (b.batch && b.date_baked === totals[name].lastBaked && totals[name].batches.indexOf(b.batch) === -1) {
@@ -2741,7 +2583,6 @@
       toast(recipe.name + " inventory updated (+" + qty + " pcs).");
     });
 
-    /* Tabs */
     document.querySelectorAll(".tab-btn").forEach(function (btn) {
       btn.addEventListener("click", function () {
         document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });
@@ -2828,14 +2669,6 @@
     renderActivity();
   }
 
-  /* =======================================================================
-     Admin — invite account (invite-account.html)
-     ======================================================================= */
-
-  /* ---- Account emails (invite / create) ----
-     These use a SEPARATE, throw-away Supabase client that never stores a session,
-     so sending an email or creating an account for someone else can never log
-     the Super Admin out or swap them into the new user's session. */
   function makeTempClient() {
     return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
@@ -2851,7 +2684,6 @@
     (window.crypto || window.msCrypto).getRandomValues(arr);
     var out = sets.map(function (set, i) { return set[arr[i] % set.length]; });
     for (var i = sets.length; i < arr.length; i++) out.push(all[arr[i] % all.length]);
-    // shuffle
     for (var j = out.length - 1; j > 0; j--) { var k = arr[j] % (j + 1); var tmp = out[j]; out[j] = out[k]; out[k] = tmp; }
     return out.join("");
   }
@@ -2891,8 +2723,6 @@
         return;
       }
 
-      // The invite record carries the role. The person's real name is entered by
-      // them later, so the email address stands in as a placeholder name.
       var insertResult = await supabaseClient.from("invites").insert({
         email: email, full_name: email, role: selectedRole, status: "Pending"
       }).select().single();
@@ -2904,8 +2734,6 @@
       }
       var inviteId = insertResult.data.id;
 
-      // Email them a confirmation link. Opening it confirms their email and brings
-      // them to our sign-up page ("?setup=1"), where they add their name + password.
       var mail = await makeTempClient().auth.signInWithOtp({
         email: email,
         options: {
@@ -2918,7 +2746,6 @@
       sendBtn.disabled = false;
 
       if (mail.error) {
-        // Roll the invite back so the person can be invited again after the problem is fixed.
         await supabaseClient.from("invites").delete().eq("id", inviteId);
         toast("Couldn't send the email: " + mail.error.message);
         return;
@@ -2951,12 +2778,6 @@
     }
   }
 
-  /* =======================================================================
-     Admin — create account (create-account.html)
-     The Super Admin fills in everything and sets the first password. The new
-     user is emailed a link to confirm their email address, then logs in.
-     ======================================================================= */
-
   function initCreateAccountPage() {
     var btn = document.getElementById("create-account-btn");
     if (!btn) return;
@@ -2980,7 +2801,7 @@
         var pw = generatePassword();
         var input = document.getElementById("create-password");
         input.value = pw;
-        input.type = "text"; // show it so the Super Admin can pass it on
+        input.type = "text";
         toast("Password generated. Copy it before you create the account.");
       });
     }
@@ -3019,8 +2840,6 @@
 
       var fullName = joinName(first, middle, last);
 
-      // 1) Record the role as an invite for this email. The database's sign-up
-      //    step reads it to give the new account the right role.
       var inviteResult = await supabaseClient.from("invites").insert({
         email: email, full_name: fullName, role: selectedRole, status: "Pending"
       }).select().single();
@@ -3030,7 +2849,6 @@
         return;
       }
 
-      // 2) Create the login. Supabase emails them to confirm their address.
       var signUp = await makeTempClient().auth.signUp({
         email: email,
         password: password,
@@ -3064,10 +2882,6 @@
       toast("Account created for " + fullName + ".");
     });
   }
-
-  /* =======================================================================
-     Admin — edit account (edit-account.html)
-     ======================================================================= */
 
   function initEditAccountPage() {
     var nameInput = document.getElementById("edit-account-first-name");
@@ -3108,7 +2922,6 @@
       setStatusUI(acc.status === "Active" ? "Active" : "Inactive");
 
       var isSuperAdmin = acc.role === "Super Admin";
-      // Role and status are only chosen here; nothing is written until "Save changes" is clicked.
       var pendingRole = acc.role;
       var pendingStatus = acc.status === "Active" ? "Active" : "Inactive";
       var superAdminSection = document.getElementById("super-admin-section");
@@ -3116,17 +2929,12 @@
       var deactivateBtn = document.getElementById("deactivate-account-btn");
 
       if (isSuperAdmin) {
-        // There's only ever one Super Admin — lock the role toggle entirely
-        // and block deleting/deactivating this account directly. To hand
-        // off ownership, open a DIFFERENT account's Edit page and click its
-        // Super Admin chip instead — that's the only way to transfer it.
         setRoleUI("Super Admin");
         document.querySelectorAll("#edit-role-toggle .chip").forEach(function (chip) {
           chip.setAttribute("disabled", "disabled");
         });
         deleteBtn.setAttribute("disabled", "disabled");
         deactivateBtn.setAttribute("disabled", "disabled");
-        // The Super Admin account must always stay Active.
         setStatusUI("Active");
         document.querySelectorAll("#edit-status-toggle .chip").forEach(function (chip) {
           chip.setAttribute("disabled", "disabled");
@@ -3172,7 +2980,6 @@
           if (existing && existing.id !== acc.id) {
             var demoteResult = await supabaseClient.from("profiles").update({ role: "Admin" }).eq("id", existing.id);
             if (demoteResult.error) {
-              // Roll back so we never end up with two Super Admins at once.
               await supabaseClient.from("profiles").update({ role: originalTargetRole }).eq("id", acc.id);
               superAdminChip.disabled = false;
               toast("Couldn't finish the transfer, so it was rolled back. Try again.");
@@ -3189,7 +2996,7 @@
 
       document.querySelectorAll("#edit-status-toggle .chip").forEach(function (chip) {
         chip.addEventListener("click", function () {
-          if (isSuperAdmin) return; // Super Admin status is locked
+          if (isSuperAdmin) return;
           pendingStatus = chip.getAttribute("data-status") === "Active" ? "Active" : "Inactive";
           setStatusUI(pendingStatus);
         });
@@ -3216,7 +3023,6 @@
 
       var saveAccountBtn = document.getElementById("save-account-btn");
       if (isSuperAdmin) {
-        // Nothing on the Super Admin account can be changed here.
         saveAccountBtn.setAttribute("disabled", "disabled");
       }
       saveAccountBtn.addEventListener("click", async function () {
@@ -3249,10 +3055,6 @@
     load();
   }
 
-  /* =======================================================================
-     Profile / business settings page (profile.html)
-     ======================================================================= */
-
   function initProfilePage() {
     var firstNameInput = document.getElementById("profile-first-name");
     if (!firstNameInput) return;
@@ -3262,8 +3064,6 @@
     var session = getSession();
     if (!session) { window.location.href = "index.html"; return; }
 
-    // Everything on this page is read-only except the business settings,
-    // which only the Super Admin has. Nobody else has anything to save.
     var businessSection = document.getElementById("business-settings-section");
     var actionsRow = document.getElementById("profile-actions");
     if (session.role !== "Super Admin") {
@@ -3275,7 +3075,6 @@
       var profileResult = await supabaseClient.from("profiles").select("*").eq("email", session.email).maybeSingle();
       var profile = profileResult.data;
 
-      // Show the name split into first / middle / last (read-only).
       var myName = profile ? nameOf(profile) : { first: session.firstName, middle: "", last: "" };
       firstNameInput.value = myName.first;
       if (middleNameInput) middleNameInput.value = myName.middle;
@@ -3318,11 +3117,6 @@
 
     load();
   }
-
-  
-  /* =======================================================================
-     Record Sale page (record-sale.html)
-     ======================================================================= */
 
   async function initRecordSalePage() {
     var select = document.getElementById("sale-bread-item");
@@ -3386,7 +3180,6 @@
         return;
       }
 
-      // Apply the sale against the oldest batch(es) with remaining stock (FIFO).
       var toDeduct = qty;
       var batchUpdates = [];
       var relevantBatches = breadBatches
@@ -3433,15 +3226,6 @@
     });
   }
 
-    /* =======================================================================
-     Analytics — formal PDF export
-     Builds an actual downloadable PDF report (not just a browser print
-     dialog) using jsPDF + its AutoTable plugin. Currency is written as
-     "PHP" rather than the ₱ symbol because jsPDF's built-in fonts don't
-     include that glyph — using it directly would render as a broken box.
-     ======================================================================= */
-
-  // Draws the bakery logo (same icon as the site header) to a PNG for the PDF.
   function loadPdfLogo() {
     return new Promise(function (resolve) {
       try {
@@ -3463,6 +3247,111 @@
     });
   }
 
+  var TREND_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var TREND_MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  function buildTrend(rangeKey, sales) {
+    var now = new Date(), y = now.getFullYear(), m = now.getMonth(), dd = now.getDate();
+    var list = [], mode, title, sub, labelEvery = 1, i, d;
+    if (rangeKey === "day") {
+      mode = "daily"; title = "Daily"; sub = "Last 7 days";
+      for (i = 6; i >= 0; i--) {
+        d = new Date(y, m, dd - i);
+        list.push({ start: d, end: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1),
+                    label: TREND_MONTHS[d.getMonth()] + " " + d.getDate(),
+                    full: d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) });
+      }
+    } else if (rangeKey === "week") {
+      mode = "weekly"; title = "Weekly"; sub = "Last 8 weeks (weeks start Monday)";
+      var thisMonday = new Date(y, m, dd - ((now.getDay() + 6) % 7));
+      for (i = 7; i >= 0; i--) {
+        d = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - i * 7);
+        var wEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7);
+        var wLast = new Date(wEnd.getFullYear(), wEnd.getMonth(), wEnd.getDate() - 1);
+        list.push({ start: d, end: wEnd, label: TREND_MONTHS[d.getMonth()] + " " + d.getDate(),
+                    full: "Week of " + TREND_MONTHS[d.getMonth()] + " " + d.getDate() + " \u2013 " + TREND_MONTHS[wLast.getMonth()] + " " + wLast.getDate() });
+      }
+    } else if (rangeKey === "month") {
+      mode = "monthly"; title = "Monthly"; sub = "Last 12 months";
+      for (i = 11; i >= 0; i--) {
+        d = new Date(y, m - i, 1);
+        list.push({ start: d, end: new Date(d.getFullYear(), d.getMonth() + 1, 1),
+                    label: TREND_MONTHS[d.getMonth()] + (i === 11 || d.getMonth() === 0 ? " '" + String(d.getFullYear()).slice(2) : ""),
+                    full: TREND_MONTHS_LONG[d.getMonth()] + " " + d.getFullYear() });
+      }
+    } else if (rangeKey === "year") {
+      mode = "yearly"; title = "Yearly"; sub = "Last 5 years";
+      for (i = 4; i >= 0; i--) {
+        list.push({ start: new Date(y - i, 0, 1), end: new Date(y - i + 1, 0, 1), label: String(y - i), full: String(y - i) });
+      }
+    } else {
+      var first = null;
+      (sales || []).forEach(function (s) { var t = new Date(s.sale_datetime); if (!isNaN(t) && (!first || t < first)) first = t; });
+      if (first) {
+        var months = (y - first.getFullYear()) * 12 + (m - first.getMonth()) + 1;
+        if (months > 24) {
+          mode = "yearly"; title = "Yearly"; sub = "All time, by year";
+          for (i = first.getFullYear(); i <= y; i++) list.push({ start: new Date(i, 0, 1), end: new Date(i + 1, 0, 1), label: String(i), full: String(i) });
+        } else {
+          mode = "monthly"; title = "Monthly"; sub = "All time, by month"; labelEvery = months > 12 ? 2 : 1;
+          for (i = 0; i < months; i++) {
+            d = new Date(first.getFullYear(), first.getMonth() + i, 1);
+            list.push({ start: d, end: new Date(d.getFullYear(), d.getMonth() + 1, 1),
+                        label: TREND_MONTHS[d.getMonth()] + " '" + String(d.getFullYear()).slice(2), full: TREND_MONTHS_LONG[d.getMonth()] + " " + d.getFullYear() });
+          }
+        }
+      } else { mode = "monthly"; title = "Monthly"; sub = "All time"; }
+    }
+    list.forEach(function (b) { b.sales = 0; b.cost = 0; b.pcs = 0; });
+    (sales || []).forEach(function (s) {
+      var t = new Date(s.sale_datetime);
+      if (isNaN(t)) return;
+      for (var k = 0; k < list.length; k++) {
+        if (t >= list[k].start && t < list[k].end) {
+          list[k].sales += Number(s.total_amount) || 0; list[k].cost += Number(s.food_cost) || 0; list[k].pcs += Number(s.quantity) || 0;
+          break;
+        }
+      }
+    });
+    return { mode: mode, title: title, sub: sub, labelEvery: labelEvery, buckets: list };
+  }
+
+  function trendAxis(top, mode) {
+    var floors = { daily: 2000, weekly: 8000, monthly: 20000, yearly: 40000 };
+    return axisScale(top, floors[mode] || 4000, 4, mode === "daily" ? 2 : 3);
+  }
+
+  function breadSalesStats(recipes, sales) {
+    var sold = {};
+    (sales || []).forEach(function (x) {
+      var t = sold[x.recipe_id] || (sold[x.recipe_id] = { qty: 0, amount: 0, cost: 0, profit: 0 });
+      var amount = Number(x.total_amount) || 0, cost = Number(x.food_cost) || 0;
+      t.qty += Number(x.quantity) || 0;
+      t.amount += amount;
+      t.cost += cost;
+      t.profit += x.gross_profit != null ? Number(x.gross_profit) : amount - cost;
+    });
+    var known = {};
+    var list = recipes.map(function (r) {
+      known[r.id] = true;
+      var t = sold[r.id] || { qty: 0, amount: 0, cost: 0, profit: 0 };
+      return { id: r.id, name: r.name, qty: t.qty, amount: t.amount, cost: t.cost, profit: t.profit };
+    });
+    var other = { id: null, name: "Other (removed breads)", other: true, qty: 0, amount: 0, cost: 0, profit: 0 };
+    Object.keys(sold).forEach(function (k) {
+      if (known[k]) return;
+      other.qty += sold[k].qty; other.amount += sold[k].amount; other.cost += sold[k].cost; other.profit += sold[k].profit;
+    });
+    if (other.qty > 0) list.push(other);
+    return list;
+  }
+
+  function profitabilityRows(recipes, sales) {
+    return breadSalesStats(recipes, sales).filter(function (r) { return !r.other && r.qty > 0 && r.amount > 0; }).map(function (r) {
+      return { name: r.name, cost: r.cost / r.qty, price: r.amount / r.qty, profit: r.profit / r.qty, margin: (r.profit / r.amount) * 100 };
+    }).sort(function (a, b) { return b.margin - a.margin; });
+  }
+
   async function exportReportToPdf(rangeKey, sales, recipes, extra) {
     var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
     if (!jsPDFCtor) { toast("PDF library didn't load. Check your internet connection and try again."); return; }
@@ -3474,7 +3363,6 @@
     var H = doc.internal.pageSize.getHeight();
     var M = 54, CW = W - M * 2;
 
-    // Palette taken straight from style.css
     var CREAM = [253, 248, 240], CRUST = [62, 39, 35], CINNAMON = [193, 102, 47], WHEAT_LINE = [220, 203, 174],
         MOCHA = [139, 115, 85], FIELD = [246, 239, 226], BUTTER = [237, 191, 107], BARK = [43, 26, 20],
         GOOD = [62, 107, 46], BAD = [156, 59, 30];
@@ -3507,8 +3395,8 @@
       }
     }
 
-    var rangeLabels = { today: "Today", "7days": "Last 7 Days", "30days": "Last 30 Days", all: "All Time" };
-    var rangeLabel = rangeLabels[rangeKey] || "Today";
+    var periodDetail = periodInfo(rangeKey);
+    var rangeLabel = periodDetail.label, rangeName = periodDetail.name;
     var session = getSession();
     var now = new Date();
     var generatedAt = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) + ", " + now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -3516,7 +3404,6 @@
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
     var refNo = "DRR-SPR-" + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + "-" + pad(now.getHours()) + pad(now.getMinutes());
 
-    // ---- Header band: same dark wood bar + butter accent as the app header ----
     doc.setFillColor(BARK[0], BARK[1], BARK[2]); doc.rect(0, 0, W, 88, "F");
     doc.setFillColor(CINNAMON[0], CINNAMON[1], CINNAMON[2]); doc.rect(0, 88, W, 3, "F");
     var textX = M;
@@ -3532,13 +3419,11 @@
     doc.setFont(F.text, "normal"); doc.setFontSize(7.5); doc.setTextColor(CREAM[0], CREAM[1], CREAM[2]);
     doc.text("CONFIDENTIAL — FOR INTERNAL USE", W - M, 67, { align: "right", charSpace: 0.6 });
 
-    // ---- Title ----
     var y = 142;
     doc.setFont("times", "bold"); doc.setFontSize(24); setC(CRUST);
     doc.text("Sales & Profitability Report", M, y);
     y += 24;
 
-    // ---- Report details ----
     doc.setDrawColor(WHEAT_LINE[0], WHEAT_LINE[1], WHEAT_LINE[2]); doc.setLineWidth(0.7);
     doc.rect(M, y, CW, 56);
     var cells = [["REPORT PERIOD", rangeLabel], ["DATE ISSUED", generatedAt], ["PREPARED BY", preparedBy]];
@@ -3553,7 +3438,6 @@
     });
     y += 56 + 34;
 
-    // ---- Figures ----
     var totalSales = sales.reduce(function (s, x) { return s + x.total_amount; }, 0);
     var totalCost = sales.reduce(function (s, x) { return s + x.food_cost; }, 0);
     var gross = totalSales - totalCost;
@@ -3571,7 +3455,6 @@
     var bestText = names.length ? names[0] + " — " + byItem[names[0]] + " pcs sold" : "No sales in this period";
     var lowText = names.length ? names[names.length - 1] + " — " + byItem[names[names.length - 1]] + " pcs sold" : "No sales in this period";
 
-    // ---- Drawing helpers for the charts (same look & colours as the analytics page) ----
     var C_SALES = [193, 102, 47], C_COST = [40, 120, 168], WHITE = [255, 255, 255];
     var PIE = [[193, 102, 47], [40, 120, 168], [62, 107, 46], [237, 191, 107], [122, 78, 45], [156, 59, 30]];
     function fillC(c) { doc.setFillColor(c[0], c[1], c[2]); }
@@ -3588,7 +3471,6 @@
       if (n >= 1000) return +(n / 1000).toFixed(1) + "K";
       return String(n);
     }
-    // White card with a title (left) and a small caption (right). Returns nothing; caller draws inside.
     function chartCard(x, y, w, h, title, sub) {
       fillC(WHITE); drawC(WHEAT_LINE); doc.setLineWidth(0.7); doc.rect(x, y, w, h, "FD");
       fillC(CINNAMON); doc.rect(x, y, 3, h, "F");
@@ -3602,7 +3484,6 @@
       return x + 13 + doc.getTextWidth(text) + 16;
     }
 
-    // Sales vs Production Cost — grouped columns, one pair per period
     function drawTrendChart(y, trend) {
       var h = 236;
       y = ensure(y, h + 10);
@@ -3611,8 +3492,7 @@
       var L = M + 62, R = M + CW - 18, T = y + 54, B = y + h - 30, pw = R - L, ph = B - T;
       var data = trend.buckets;
       var top = Math.max.apply(null, data.map(function (d) { return Math.max(d.sales, d.cost); }));
-      var floors = { daily: 2000, weekly: 8000, monthly: 20000, yearly: 40000 };
-      var sc = axisScale(top, floors[trend.mode] || 4000, 4, trend.mode === "daily" ? 2 : 3);
+      var sc = trendAxis(top, trend.mode);
       doc.setFontSize(8); doc.setFont(F.text, "normal");
       for (var t = 0; t <= 4; t++) {
         var gy = B - ph * t / 4;
@@ -3628,12 +3508,11 @@
         if (hs) { fillC(C_SALES); doc.rect(cx - bw - 0.5, B - hs, bw, hs, "F"); }
         if (hc) { fillC(C_COST); doc.rect(cx + 0.5, B - hc, bw, hc, "F"); }
         doc.setFont(F.text, "normal"); doc.setFontSize(7.5); setC(MOCHA);
-        doc.text(fitText(d.label, gw + 2), cx, B + 13, { align: "center" });
+        if (i % (trend.labelEvery || 1) === 0) doc.text(fitText(d.label, gw * (trend.labelEvery || 1) + 2), cx, B + 13, { align: "center" });
       });
       return y + h + 10;
     }
 
-    // Profit Margin by Bread — horizontal bars with the 50% "High Profit" mark
     function drawMarginChart(y, list) {
       var rowH = 17, h = 66 + list.length * rowH;
       y = ensure(y, h + 10);
@@ -3655,9 +3534,8 @@
       return y + h + 10;
     }
 
-    // Pie of the top / bottom five breads by pieces sold (same colours as the page)
-    function drawPie(x, y, w, h, title, list, qtyOf) {
-      chartCard(x, y, w, h, title, "Pieces sold");
+    function drawPie(x, y, w, h, title, list, qtyOf, sub) {
+      chartCard(x, y, w, h, title, sub || "Pieces sold");
       var total = list.reduce(function (s, n) { return s + qtyOf(n); }, 0);
       if (!total) { doc.setFont(F.text, "italic"); doc.setFontSize(9); setC(MOCHA); doc.text("No sales in this range yet.", x + w / 2, y + h / 2 + 6, { align: "center" }); return; }
       var cx = x + w / 2, cy = y + 34 + 42, R = 38, ang = -Math.PI / 2;
@@ -3683,19 +3561,17 @@
       });
     }
 
-    // ---- 1. Executive summary ----
     y = sectionTitle("1.  Executive Summary", y);
     var summaryText = sales.length
-      ? "For the reporting period (" + rangeLabel.toLowerCase() + "), DRR Bakery recorded " + sales.length + " sales transaction" + (sales.length === 1 ? "" : "s") +
+      ? "For the reporting period (" + rangeName.toLowerCase() + "), DRR Bakery recorded " + sales.length + " sales transaction" + (sales.length === 1 ? "" : "s") +
         " totalling " + units.toLocaleString("en-US") + " pieces sold. Total sales amounted to " + money(totalSales) + " against a production cost of " + money(totalCost) +
         ", resulting in a gross profit of " + money(gross) + " (" + pct2(grossPct) + " gross margin)."
-      : "No sales were recorded for the reporting period (" + rangeLabel.toLowerCase() + "). Figures below reflect zero activity.";
+      : "No sales were recorded for the reporting period (" + rangeName.toLowerCase() + "). Figures below reflect zero activity.";
     doc.setFont("times", "normal"); doc.setFontSize(10.5); setC(CRUST);
     var lines = doc.splitTextToSize(summaryText, CW);
     doc.text(lines, M, y, { lineHeightFactor: 1.45 });
     y += lines.length * 15 + 18;
 
-    // ---- 2. Financial summary: the four tiles from the top of the analytics page ----
     y = sectionTitle("2.  Financial Summary", y);
     var tiles = [["Total Sales", totalSales, C_SALES], ["Total Production Cost", totalCost, C_COST], ["Gross Profit", gross, GOOD], ["Net Profit", gross, GOOD]];
     var gap = 10, tw = (CW - gap * 3) / 4;
@@ -3708,57 +3584,64 @@
     });
     y += 58 + 30;
 
-    // ---- 3. Sales charts ----
     y = sectionTitle("3.  Sales Charts", y);
-    var trend = extra && extra.trend;
-    if (trend && trend.buckets && trend.buckets.some(function (d) { return d.sales > 0 || d.cost > 0; })) {
+    var trend = buildTrend(rangeKey, sales);
+    var trendActive = trend.buckets.filter(function (b) { return b.sales > 0 || b.cost > 0; });
+    var trendTotal = trend.buckets.reduce(function (t, b) { return { pcs: t.pcs + b.pcs, sales: t.sales + b.sales, cost: t.cost + b.cost }; }, { pcs: 0, sales: 0, cost: 0 });
+    if (trendActive.length) {
       y = drawTrendChart(y, trend);
-      y = ensure(y, 40 + (trend.buckets.length + 1) * 17);
+      y = ensure(y, 40 + Math.min(trend.buckets.length + 1, 12) * 17);
       doc.autoTable(Object.assign({}, tableBase, {
         startY: y,
-        head: [[trend.mode === "yearly" ? "Year" : (trend.mode === "monthly" ? "Month" : (trend.mode === "weekly" ? "Week" : "Date")), "Pieces Sold", "Sales", "Production Cost", "Profit"]],
-        body: trend.buckets.map(function (b) { return [b.full, b.pcs.toLocaleString("en-US"), money(b.sales), money(b.cost), money(b.sales - b.cost)]; }),
+        head: [[{ daily: "Date", weekly: "Week", monthly: "Month", yearly: "Year" }[trend.mode] || "Period", "Pieces Sold", "Sales", "Production Cost", "Profit"]],
+        body: trend.buckets.map(function (b) { return [b.full, b.pcs.toLocaleString("en-US"), money(b.sales), money(b.cost), money(b.sales - b.cost)]; })
+          .concat([["Total", trendTotal.pcs.toLocaleString("en-US"), money(trendTotal.sales), money(trendTotal.cost), money(trendTotal.sales - trendTotal.cost)]]),
         styles: Object.assign({}, tableBase.styles, { fontSize: 8, cellPadding: { top: 4, bottom: 4, left: 8, right: 8 } }),
         headStyles: Object.assign({}, tableBase.headStyles, { fontSize: 8, cellPadding: { top: 5, bottom: 5, left: 8, right: 8 } }),
         columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
-        didParseCell: function (d) { alignHead(d, [1, 2, 3, 4], []); }
+        didParseCell: function (d) {
+          alignHead(d, [1, 2, 3, 4], []);
+          if (d.section === "body" && d.row.index === trend.buckets.length) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = [250, 233, 196]; }
+        }
       }));
       y = doc.lastAutoTable.finalY + 16;
     } else {
       y = ensure(y, 40);
       doc.setFont(F.text, "italic"); doc.setFontSize(10); setC(MOCHA);
-      doc.text("No sales recorded in the chart period yet.", M, y); y += 26;
+      doc.text("No sales recorded in this period.", M, y); y += 26;
     }
 
-    var marginRows = recipes.filter(function (r) { return r.selling_price > 0; }).map(function (r) {
-      var profit = r.selling_price - r.cost_per_piece;
-      return { name: r.name, margin: (profit / r.selling_price) * 100 };
-    }).sort(function (a, b) { return b.margin - a.margin; });
+    var marginRows = profitabilityRows(recipes, sales);
     if (marginRows.length) y = drawMarginChart(y, marginRows);
     y += 14;
 
-    // ---- 4. Best / lowest selling bread (pies, side by side like the page) ----
+    y = ensure(y, 270);
     y = sectionTitle("4.  Best Selling / Lowest Selling Bread", y);
-    var allQty = {};
-    recipes.forEach(function (r) { allQty[r.name] = 0; });
-    names.forEach(function (n) { allQty[n] = byItem[n]; });
-    var ranked = Object.keys(allQty).sort(function (a, b) { return allQty[b] - allQty[a]; });
+    var qtyMap = {};
+    recipes.forEach(function (r) { qtyMap[r.name] = 0; });
+    sales.forEach(function (x) { var n = x.recipes ? x.recipes.name : "Unknown"; qtyMap[n] = (qtyMap[n] || 0) + x.quantity; });
+    var bestList = Object.keys(qtyMap).sort(function (a, b) { return (qtyMap[b] - qtyMap[a]) || a.localeCompare(b); }).slice(0, 5);
+    var lowList = Object.keys(qtyMap).filter(function (n) { return qtyMap[n] > 0; }).sort(function (a, b) { return (qtyMap[a] - qtyMap[b]) || a.localeCompare(b); }).slice(0, 5);
+    var lowUnsold = Object.keys(qtyMap).filter(function (n) { return qtyMap[n] === 0; }).sort();
     var pieH = 200, pieW = (CW - 14) / 2;
-    y = ensure(y, pieH + 10);
-    var qtyOf = function (n) { return allQty[n] || 0; };
-    drawPie(M, y, pieW, pieH, "Best Selling Bread", sales.length ? ranked.slice(0, 5) : [], qtyOf);
-    drawPie(M + pieW + 14, y, pieW, pieH, "Lowest Selling Bread", sales.length ? ranked.slice().reverse().slice(0, 5) : [], qtyOf);
-    y += pieH + 24;
+    y = ensure(y, pieH + 34);
+    var qtyOf = function (n) { return qtyMap[n] || 0; };
+    drawPie(M, y, pieW, pieH, "Best Selling Bread", sales.length ? bestList : [], qtyOf, "Pieces sold \u00B7 " + rangeName);
+    drawPie(M + pieW + 14, y, pieW, pieH, "Lowest Selling Bread", sales.length ? lowList : [], qtyOf, "Pieces sold \u00B7 " + rangeName);
+    y += pieH + 14;
+    if (sales.length && lowUnsold.length) {
+      doc.setFont(F.text, "italic"); doc.setFontSize(8.5); setC(MOCHA);
+      var unsoldLines = doc.splitTextToSize("No sales in this period - " + lowUnsold.length + " bread" + (lowUnsold.length === 1 ? "" : "s") + ": " + lowUnsold.join(", ") + ".", CW);
+      y = ensure(y, unsoldLines.length * 11 + 6);
+      doc.text(unsoldLines, M, y + 4);
+      y += unsoldLines.length * 11;
+    }
+    y += 24;
 
-    // ---- 5. Profitability ranking ----
-    var rows = recipes.map(function (r) {
-      var profit = (r.selling_price || 0) - r.cost_per_piece;
-      var mg = r.selling_price ? (profit / r.selling_price) * 100 : 0;
-      return { name: r.name, cost: r.cost_per_piece, price: r.selling_price || 0, profit: profit, margin: mg };
-    }).sort(function (a, b) { return b.margin - a.margin; });
+    var rows = profitabilityRows(recipes, sales);
 
     y = sectionTitle("5.  Bread Profitability Ranking", y);
-    doc.autoTable(Object.assign({}, tableBase, {
+    if (rows.length) doc.autoTable(Object.assign({}, tableBase, {
       startY: y,
       head: [["No.", "Bread Name", "Unit Cost", "Selling Price", "Profit", "Margin", "Status"]],
       body: rows.map(function (r, i) {
@@ -3771,26 +3654,12 @@
         if (d.section === "body" && d.column.index === 6) d.cell.styles.textColor = d.cell.raw === "High Profit" ? GOOD : BAD;
       }
     }));
-    y = doc.lastAutoTable.finalY;
-    if (!rows.length) {
-      doc.setFont(F.text, "normal"); doc.setFontSize(10); setC(MOCHA);
-      doc.text("No recipes available.", M, y + 18); y += 24;
-    }
+    if (rows.length) y = doc.lastAutoTable.finalY;
+    else { doc.setFont(F.text, "italic"); doc.setFontSize(10); setC(MOCHA); doc.text("No sales recorded in this period.", M, y + 4); y += 10; }
     y += 30;
 
-    // ---- 6. Bread sales: every bread, best seller first, with a coloured Total row ----
     y = sectionTitle("6.  Bread Sales", y);
-    var soldBy = {};
-    sales.forEach(function (x) {
-      var t = soldBy[x.recipe_id] || (soldBy[x.recipe_id] = { qty: 0, amount: 0, cost: 0, profit: 0 });
-      var amount = Number(x.total_amount) || 0, cost = Number(x.food_cost) || 0;
-      t.qty += Number(x.quantity) || 0; t.amount += amount; t.cost += cost;
-      t.profit += x.gross_profit != null ? Number(x.gross_profit) : amount - cost;
-    });
-    var salesRows = recipes.map(function (r) {
-      var t = soldBy[r.id] || { qty: 0, amount: 0, cost: 0, profit: 0 };
-      return { name: r.name, qty: t.qty, amount: t.amount, cost: t.cost, profit: t.profit };
-    }).sort(function (a, b) { return b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name); });
+    var salesRows = breadSalesStats(recipes, sales).sort(function (a, b) { return b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name); });
     var tot = { qty: 0, amount: 0, cost: 0, profit: 0 };
     salesRows.forEach(function (r) { tot.qty += r.qty; tot.amount += r.amount; tot.cost += r.cost; tot.profit += r.profit; });
     var salesBody = salesRows.map(function (r, i) { return [i + 1, r.name, r.qty + " pcs", money(r.amount), money(r.cost), money(r.profit)]; });
@@ -3817,7 +3686,6 @@
     }
     y += 30;
 
-    // ---- 7. Pre-baking profit forecast (only when figures were entered on the page) ----
     var sec = 7;
     var fc = extra && extra.forecast;
     if (fc && fc.pcs > 0) {
@@ -3837,7 +3705,6 @@
       y += 44; sec = 8;
     }
 
-    // ---- Notes ----
     y = sectionTitle(sec + ".  Notes", y);
     var notes = [
       "All amounts are expressed in Philippine Pesos (PHP).",
@@ -3853,7 +3720,6 @@
     });
     y += 14;
 
-    // ---- Sign-off (needs only ~50pt, so it stays on the Notes page when there is room) ----
     y = ensure(y, 50);
     var sigW = (CW - 40) / 2;
     [["Prepared by", preparedBy], ["Reviewed / Approved by", ""]].forEach(function (sg, i) {
@@ -3864,7 +3730,6 @@
       if (sg[1]) { doc.setFont(F.text, "normal"); doc.setFontSize(9.5); setC(CRUST); doc.text(sg[1], x, y + 22); }
     });
 
-    // ---- Running header (pages 2+) and footer (all pages) ----
     var pageCount = doc.internal.getNumberOfPages();
     for (var p = 1; p <= pageCount; p++) {
       doc.setPage(p);
@@ -3874,7 +3739,7 @@
         doc.setFont("times", "bold"); doc.setFontSize(12); setC(CREAM);
         doc.text("DRR BAKERY", M, 26);
         doc.setFont(F.text, "normal"); doc.setFontSize(8); setC(BUTTER);
-        doc.text("Sales & Profitability Report  |  " + rangeLabel + "  |  " + refNo, W - M, 25, { align: "right" });
+        doc.text("Sales & Profitability Report  |  " + rangeName + "  |  " + refNo, W - M, 25, { align: "right" });
       }
       doc.setDrawColor(WHEAT_LINE[0], WHEAT_LINE[1], WHEAT_LINE[2]); doc.setLineWidth(0.7); doc.line(M, H - 42, W - M, H - 42);
       doc.setFont(F.text, "normal"); doc.setFontSize(7.5); setC(MOCHA);
@@ -3886,17 +3751,13 @@
     doc.save("DRR-Bakery-Report-" + fileDate + ".pdf");
   }
 
-  /* =======================================================================
-     Analytics page (analytics.html)
-     ======================================================================= */
-
   async function initAnalyticsPage() {
     var el = document.getElementById("stat-total-sales");
     if (!el) return;
 
     var rangeSelect = document.getElementById("analytics-date-range");
     var headingEl = document.getElementById("analytics-heading");
-    var headingByRange = { today: "Today's Sale", "7days": "Last 7 Days", "30days": "Last 30 Days", all: "All-Time Sales" };
+    var headingByRange = { today: "Today's Sale", day: "Daily Sales (Last 7 Days)", week: "Weekly Sales (Last 8 Weeks)", month: "Monthly Sales (Last 12 Months)", year: "Yearly Sales (Last 5 Years)", all: "All-Time Sales" };
 
     var recipes = await fetchRecipes();
 
@@ -3910,20 +3771,14 @@
       document.getElementById("stat-net-profit").textContent = peso(gross);
     }
 
-    // Every bread, ranked by profit margin per piece.
-    function renderRanking() {
+    function renderRanking(sales) {
       var tbody = document.getElementById("ranking-body");
       tbody.innerHTML = "";
-      if (!recipes.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-note">No recipes yet.</td></tr>';
+      var rows = profitabilityRows(recipes, sales);
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-note">No sales in this range yet.</td></tr>';
         return;
       }
-      var rows = recipes.map(function (r) {
-        var profit = (r.selling_price || 0) - r.cost_per_piece;
-        var margin = r.selling_price ? (profit / r.selling_price) * 100 : 0;
-        return { name: r.name, cost: r.cost_per_piece, price: r.selling_price || 0, profit: profit, margin: margin };
-      }).sort(function (a, b) { return b.margin - a.margin; });
-
       rows.forEach(function (r, i) {
         var tr = document.createElement("tr");
         if (i < 5) tr.className = "top-five";
@@ -3936,8 +3791,6 @@
       });
     }
 
-    // Separate table: what each bread actually sold in the chosen date range.
-    // Every bread is listed (0 if it had no sales), best seller first.
     function renderBreadSales(sales) {
       var tbody = document.getElementById("bread-sales-body");
       if (!tbody) return;
@@ -3946,20 +3799,7 @@
         tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No recipes yet.</td></tr>';
         return;
       }
-      var sold = {};
-      (sales || []).forEach(function (x) {
-        var t = sold[x.recipe_id] || (sold[x.recipe_id] = { qty: 0, amount: 0, cost: 0, profit: 0 });
-        var amount = Number(x.total_amount) || 0, cost = Number(x.food_cost) || 0;
-        t.qty += Number(x.quantity) || 0;
-        t.amount += amount;
-        t.cost += cost;
-        t.profit += x.gross_profit != null ? Number(x.gross_profit) : amount - cost;
-      });
-      var rows = recipes.map(function (r) {
-        var t = sold[r.id] || { qty: 0, amount: 0, cost: 0, profit: 0 };
-        return { name: r.name, qty: t.qty, amount: t.amount, cost: t.cost, profit: t.profit };
-      }).sort(function (a, b) { return b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name); });
-
+      var rows = breadSalesStats(recipes, sales).sort(function (a, b) { return b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name); });
       var total = { qty: 0, amount: 0, cost: 0, profit: 0 };
       rows.forEach(function (r, i) {
         total.qty += r.qty; total.amount += r.amount; total.cost += r.cost; total.profit += r.profit;
@@ -3977,8 +3817,6 @@
       tbody.appendChild(totalRow);
     }
 
-
-    /* ---- Charts (inline SVG, brand colours) ---- */
     var C_SALES = "#C1662F", C_COST = "#2878A8", C_GOOD = "#3E6B2E", C_BAD = "#9C3B1E";
     var C_INK = "#3E2723", C_MUTED = "#8B7355", C_GRID = "#DCCBAE";
     var tipEl = document.getElementById("chart-tip");
@@ -3991,7 +3829,6 @@
       return n * p;
     }
     function svgEsc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
-    // Bar with rounded top corners (4px), flat on the baseline.
     function barPath(x, y, w, h, r) {
       if (h <= 0) return "";
       r = Math.min(r, w / 2, h);
@@ -4026,112 +3863,25 @@
     }
     function emptyChart(el, msg) { el.innerHTML = '<p class="chart-empty">' + msg + '</p>'; }
 
-    /* Sales vs cost chart: has its own range (Daily / Weekly / Monthly / Yearly),
-       independent of the date filter at the top of the page. */
-    var trendMode = "monthly";
-    var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    var MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-    function trendBuckets(mode) {
-      var now = new Date(), list = [], i, d;
-      if (mode === "daily") {
-        for (i = 6; i >= 0; i--) {
-          d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-          list.push({ start: d, end: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1), label: MONTHS[d.getMonth()] + " " + d.getDate(),
-                      full: d.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" }) });
-        }
-      } else if (mode === "weekly") {
-        var dow = (now.getDay() + 6) % 7; // Monday = 0
-        var thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow);
-        for (i = 7; i >= 0; i--) {
-          d = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - i * 7);
-          var e = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7);
-          var last = new Date(e.getFullYear(), e.getMonth(), e.getDate() - 1);
-          list.push({ start: d, end: e, label: MONTHS[d.getMonth()] + " " + d.getDate(),
-                      full: "Week of " + MONTHS[d.getMonth()] + " " + d.getDate() + " – " + MONTHS[last.getMonth()] + " " + last.getDate() });
-        }
-      } else if (mode === "yearly") {
-        for (i = 4; i >= 0; i--) {
-          var y = now.getFullYear() - i;
-          list.push({ start: new Date(y, 0, 1), end: new Date(y + 1, 0, 1), label: String(y), full: String(y) });
-        }
-      } else { // monthly: the last 12 months, oldest to newest
-        for (i = 11; i >= 0; i--) {
-          d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          var showYear = i === 11 || d.getMonth() === 0;
-          list.push({ start: d, end: new Date(d.getFullYear(), d.getMonth() + 1, 1),
-                      label: MONTHS[d.getMonth()] + (showYear ? " '" + String(d.getFullYear()).slice(2) : ""),
-                      full: MONTHS_LONG[d.getMonth()] + " " + d.getFullYear() });
-        }
-      }
-      list.forEach(function (b) { b.sales = 0; b.cost = 0; b.pcs = 0; });
-      return list;
-    }
-
-    async function fetchSalesBetween(startDate) {
-      var rows = [], from = 0, page = 1000;
-      for (var n = 0; n < 30; n++) {
-        var res = await supabaseClient.from("sales").select("total_amount, food_cost, quantity, sale_datetime")
-          .gte("sale_datetime", startDate.toISOString()).order("sale_datetime", { ascending: true }).range(from, from + page - 1);
-        if (res.error || !res.data) break;
-        rows = rows.concat(res.data);
-        if (res.data.length < page) break;
-        from += page;
-      }
-      return rows;
-    }
-
-    var trendLoadId = 0, lastTrend = null;
-    async function loadTrendChart(mode) {
+    function renderTrendChart(trend) {
       var el = document.getElementById("chart-trend");
       if (!el) return;
-      trendMode = mode;
-      var myLoad = ++trendLoadId;
-      document.querySelectorAll("#chart-trend-tabs button").forEach(function (b) {
-        b.classList.toggle("active", b.getAttribute("data-mode") === mode);
-      });
-      var titles = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" };
-      var subs = { daily: "Last 7 days", weekly: "Last 8 weeks (weeks start Monday)", monthly: "Last 12 months", yearly: "Last 5 years" };
       var titleEl = document.getElementById("chart-trend-title");
-      if (titleEl) titleEl.textContent = "Sales vs Production Cost (" + titles[mode] + ")";
+      if (titleEl) titleEl.textContent = "Sales vs Production Cost (" + trend.title + ")";
       var subEl = document.getElementById("chart-trend-sub");
-      if (subEl) subEl.textContent = subs[mode];
-
-      var buckets = trendBuckets(mode);
-      var rows;
-      try { rows = await fetchSalesBetween(buckets[0].start); }
-      catch (err) { if (myLoad === trendLoadId) emptyChart(el, "Couldn't load the chart. Try again."); return; }
-      if (myLoad !== trendLoadId) return; // a newer click superseded this one
-      rows.forEach(function (s) {
-        var d = new Date(s.sale_datetime);
-        if (isNaN(d)) return;
-        for (var i = 0; i < buckets.length; i++) {
-          if (d >= buckets[i].start && d < buckets[i].end) {
-            buckets[i].sales += s.total_amount; buckets[i].cost += s.food_cost; buckets[i].pcs += s.quantity;
-            break;
-          }
-        }
-      });
-      lastTrend = { mode: mode, title: titles[mode], sub: subs[mode], buckets: buckets };
-      renderTrendChart(buckets);
-    }
-
-    function renderTrendChart(data) {
-      var el = document.getElementById("chart-trend");
-      if (!el) return;
+      if (subEl) subEl.textContent = trend.sub;
+      var data = trend.buckets;
       var any = data.some(function (d) { return d.sales > 0 || d.cost > 0; });
       if (!any) { emptyChart(el, "No sales recorded in this period yet."); return; }
 
       var W = 520, H = 250, L = 56, R = 10, T = 12, B = 32;
       var pw = W - L - R, ph = H - T - B;
       var top = Math.max.apply(null, data.map(function (d) { return Math.max(d.sales, d.cost); }));
-      // Axis in thousands (₱1K, ₱2K ...). The starting scale is higher for longer ranges
-      // and always grows if the sales are bigger than that.
-      var floors = { daily: 2000, weekly: 8000, monthly: 20000, yearly: 40000 };
-      var sc = axisScale(top, floors[trendMode] || 4000, 4, trendMode === "daily" ? 2 : 3);
+      var sc = trendAxis(top, trend.mode);
       var step = sc.step, max = sc.max;
       var gw = pw / data.length;
-      var bw = Math.max(4, Math.min(26, gw * 0.3));
+      var bw = Math.max(3, Math.min(26, gw * 0.3));
+      var every = trend.labelEvery || 1;
       var out = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Sales versus production cost">';
       for (var t = 0; t <= 4; t++) {
         var gy = T + ph - (ph * t / 4);
@@ -4144,22 +3894,17 @@
         var tip = '<strong>' + svgEsc(d.full) + '</strong><br><i class="chart-swatch" style="background:' + C_SALES + '"></i>Sales ' + peso(d.sales) + '<br><i class="chart-swatch" style="background:' + C_COST + '"></i>Cost ' + peso(d.cost) + '<br>Profit ' + peso(d.sales - d.cost) + '<br>' + d.pcs.toLocaleString("en-US") + ' pcs sold';
         out += '<g data-tip="' + svgEsc(tip) + '" tabindex="0">';
         out += '<rect x="' + (cx - gw / 2) + '" y="' + T + '" width="' + gw + '" height="' + ph + '" fill="transparent"/>';
-        out += '<path d="' + barPath(cx - bw - 1, T + ph - hs, bw, hs, 4) + '" fill="' + C_SALES + '"/>';
-        out += '<path d="' + barPath(cx + 1, T + ph - hc, bw, hc, 4) + '" fill="' + C_COST + '"/>';
+        out += '<path d="' + barPath(cx - bw - 1, T + ph - hs, bw, hs, 3) + '" fill="' + C_SALES + '"/>';
+        out += '<path d="' + barPath(cx + 1, T + ph - hc, bw, hc, 3) + '" fill="' + C_COST + '"/>';
         out += '</g>';
-        out += '<text x="' + cx + '" y="' + (H - 12) + '" text-anchor="middle" fill="' + C_MUTED + '" font-size="11">' + svgEsc(d.label) + '</text>';
+        if (i % every === 0) out += '<text x="' + cx + '" y="' + (H - 12) + '" text-anchor="middle" fill="' + C_MUTED + '" font-size="11">' + svgEsc(d.label) + '</text>';
       });
       out += '</svg>';
       el.innerHTML = out;
       wireTips(el);
     }
 
-    document.querySelectorAll("#chart-trend-tabs button").forEach(function (b) {
-      b.addEventListener("click", function () { loadTrendChart(b.getAttribute("data-mode")); });
-    });
-
     function renderHBars(el, rows, opts) {
-      // rows: [{label, value, color, tip, valueLabel}]
       var rowH = 34, L = 118, R = 64, T = 8, W = 420;
       var H = T + rows.length * rowH + 24;
       var max = opts.max;
@@ -4200,7 +3945,6 @@
     var PIE_COLORS = ["#C1662F", "#2878A8", "#3E6B2E", "#EDBF6B", "#7A4E2D", "#9C3B1E"];
 
     function renderPie(el, rows, label) {
-      // rows: [{label, value, tip}]
       var total = rows.reduce(function (t, r) { return t + r.value; }, 0);
       if (!total) { emptyChart(el, "No sales in this range yet."); return; }
       var cx = 90, cy = 90, R = 80, ang = -Math.PI / 2;
@@ -4232,46 +3976,50 @@
       if (!el) return;
       var byItem = breadTotals(sales);
       if (!sales.length) { emptyChart(el, "No sales in this range yet."); return; }
-      var names = Object.keys(byItem).filter(function (n) { return !lowest || true; }).sort(function (a, b) {
-        return lowest ? byItem[a].qty - byItem[b].qty : byItem[b].qty - byItem[a].qty;
+      var all = Object.keys(byItem);
+      var sold = all.filter(function (n) { return byItem[n].qty > 0; });
+      var names = (lowest ? sold : all).sort(function (a, b) {
+        return (lowest ? byItem[a].qty - byItem[b].qty : byItem[b].qty - byItem[a].qty) || a.localeCompare(b);
       }).slice(0, 5);
       renderPie(el, names.map(function (n) {
         return { label: n, value: byItem[n].qty,
           tip: "<strong>" + svgEsc(n) + "</strong><br>" + byItem[n].qty + " pcs sold<br>Sales " + peso(byItem[n].rev) };
       }), (lowest ? "Lowest" : "Best") + " selling bread by pieces sold");
+      var unsold = all.filter(function (n) { return byItem[n].qty === 0; }).sort();
+      if (lowest && unsold.length) {
+        el.insertAdjacentHTML("beforeend", '<p class="chart-sub" style="margin:10px 0 0;">No sales in this period (' + unsold.length + '): ' +
+          svgEsc(unsold.slice(0, 6).join(", ")) + (unsold.length > 6 ? " and " + (unsold.length - 6) + " more" : "") + ".</p>");
+      }
     }
 
-    function renderMarginChart() {
+    function renderMarginChart(sales) {
       var el = document.getElementById("chart-margin");
       if (!el) return;
-      var rows = recipes.filter(function (r) { return r.selling_price > 0; }).map(function (r) {
-        var profit = r.selling_price - r.cost_per_piece;
-        return { name: r.name, margin: (profit / r.selling_price) * 100, profit: profit, price: r.selling_price, cost: r.cost_per_piece };
-      }).sort(function (a, b) { return b.margin - a.margin; });
-      if (!rows.length) { emptyChart(el, "No recipes with a selling price yet."); return; }
+      var rows = profitabilityRows(recipes, sales);
+      if (!rows.length) { emptyChart(el, "No sales in this range yet."); return; }
       renderHBars(el, rows.map(function (r) {
         var high = r.margin >= 50;
-        return { label: r.name, value: Math.max(0, r.margin), color: high ? C_GOOD : C_BAD, valueLabel: pct2(r.margin) + (high ? " ▲" : " ▼"),
+        return { label: r.name, value: Math.max(0, r.margin), color: high ? C_GOOD : C_BAD, valueLabel: pct2(r.margin) + (high ? " \u25B2" : " \u25BC"),
           tip: "<strong>" + svgEsc(r.name) + "</strong><br>Margin " + pct2(r.margin) + " (" + (high ? "High Profit" : "Low Profit") + ")<br>Price " + peso(r.price) + " &middot; Cost " + peso(r.cost) + "<br>Profit " + peso(r.profit) + " per pc" };
       }), { max: 100, refLine: 50, refLabel: "50%", label: "Profit margin by bread" });
     }
 
-    function renderCharts(sales, rangeKey) {
-      drawSalesRank("chart-best", sales, false);
-      drawSalesRank("chart-lowest", sales, true);
-    }
-
+    var refreshId = 0;
     async function refreshForRange(rangeKey) {
+      var myRefresh = ++refreshId;
       headingEl.textContent = headingByRange[rangeKey] || "Sales";
       var sales = await fetchSales(rangeKey);
-      await renderTotals(sales);
+      if (myRefresh !== refreshId) return;
+      renderTotals(sales);
+      renderTrendChart(buildTrend(rangeKey, sales));
+      renderMarginChart(sales);
+      drawSalesRank("chart-best", sales, false);
+      drawSalesRank("chart-lowest", sales, true);
+      renderRanking(sales);
       renderBreadSales(sales);
-      renderCharts(sales, rangeKey);
     }
 
     rangeSelect.addEventListener("change", function () { refreshForRange(rangeSelect.value); });
-
-    /* ---- Pre-Baking Profit Forecast (hypothetical, kept OUT of real sales) ---- */
 
     function populateBreadItemSelect() {
       var select = document.getElementById("forecast-bread-item");
@@ -4341,8 +4089,6 @@
       if (saveResult.error) { toast("Couldn't save forecast: " + saveResult.error.message); return; }
 
       await logActivitySupa("Saved forecast - " + name + " (" + result.pcs + " pcs)");
-      // Forecasts are hypothetical and intentionally do NOT get added to sales/
-      // best-selling/profitability numbers above \u2014 only real recorded sales do.
       toast("Forecast saved for " + name + ". (This is a projection \u2014 it won't count as a real sale.)");
     });
 
@@ -4355,30 +4101,21 @@
       var fcSel = document.getElementById("forecast-bread-item");
       var fc = recomputeForecast();
       fc.name = fcSel.options[fcSel.selectedIndex] ? fcSel.options[fcSel.selectedIndex].textContent : "";
-      await exportReportToPdf(rangeSelect.value, sales, recipes, { trend: lastTrend, forecast: fc });
+      await exportReportToPdf(rangeSelect.value, sales, recipes, { forecast: fc });
       btn.disabled = false;
       btn.textContent = originalText;
     });
 
     populateBreadItemSelect();
     if (recipes.length) recomputeForecast();
-    renderRanking();
-    renderMarginChart();
-    loadTrendChart(trendMode);
-    await refreshForRange("today");
+    await refreshForRange(rangeSelect.value);
   }
-
-  /* =======================================================================
-     Footer (every page): year, phone number, and the link list
-     ======================================================================= */
 
   function fillFooterBasics() {
     document.querySelectorAll(".footer-year").forEach(function (el) { el.textContent = new Date().getFullYear(); });
     document.querySelectorAll(".footer-phone-text").forEach(function (el) { el.textContent = CONTACT_PHONE; });
   }
 
-  // Logged in: mirror the header menu (so each role sees only its own pages).
-  // Logged out (login / sign-up pages): show the account links instead.
   function fillFooterLinks() {
     var list = document.getElementById("footer-links");
     if (!list) return;
@@ -4402,15 +4139,6 @@
     });
   }
 
-  /* =======================================================================
-     Init
-     ======================================================================= */
-
-  /* ---- Double-click / double-save protection ----
-     Every "save" style button only runs one request at a time and stays blocked
-     for a moment afterwards (or for good while it is disabled), so clicking twice,
-     or clicking again while the page is still redirecting, can never create a
-     second copy of the record. */
   function protectSaveButtons() {
     ["save-recipe-btn", "save-ingredient-btn", "save-bread-stock-btn", "save-sale-btn",
      "save-forecast-btn", "send-invite-btn", "create-account-btn"].forEach(function (id) {
@@ -4433,21 +4161,54 @@
     });
   }
 
+  function initPhotoSlideshow() {
+    document.querySelectorAll(".dash-photo[data-slideshow]").forEach(function (fig) {
+      var slides = fig.querySelectorAll(".photo-stack img");
+      var dotsWrap = fig.querySelector(".photo-dots");
+      if (slides.length < 2 || !dotsWrap) return;
+      var idx = 0, timer = null;
+      var dots = [];
+      function show(i) {
+        idx = (i + slides.length) % slides.length;
+        slides.forEach(function (img, n) { img.classList.toggle("is-active", n === idx); });
+        dots.forEach(function (d, n) { d.classList.toggle("is-active", n === idx); d.setAttribute("aria-current", n === idx ? "true" : "false"); });
+      }
+      function stop() { if (timer) { clearInterval(timer); timer = null; } }
+      function start() {
+        if (timer || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
+        timer = setInterval(function () { show(idx + 1); }, 4500);
+      }
+      slides.forEach(function (img, n) {
+        var d = document.createElement("button");
+        d.type = "button";
+        d.className = "photo-dot";
+        d.setAttribute("aria-label", "Show photo " + (n + 1) + " of " + slides.length);
+        d.addEventListener("click", function () { show(n); stop(); start(); });
+        dotsWrap.appendChild(d);
+        dots.push(d);
+      });
+      fig.addEventListener("mouseenter", stop);
+      fig.addEventListener("mouseleave", start);
+      fig.addEventListener("focusin", stop);
+      fig.addEventListener("focusout", start);
+      show(0);
+      start();
+    });
+  }
+
   var appInitStarted = false;
 
   document.addEventListener("DOMContentLoaded", async function () {
-    if (appInitStarted) return;      // never initialise a page twice
+    if (appInitStarted) return;
     appInitStarted = true;
 
     function reveal() { document.body.classList.add("app-ready"); }
 
     try {
-      // Trim the menu for the known role right away (before any network call)
-      // so it doesn't visibly change after the page has painted.
       try {
         var early = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
         if (early && early.role) filterNavForRole(early.role);
-      } catch (e) { /* ignore */ }
+      } catch (e) { }
 
       protectSaveButtons();
       fillFooterBasics();
@@ -4458,14 +4219,12 @@
       initResetPasswordForm();
 
       var chromeOk = await initAppChrome();
-      if (chromeOk === false) return;   // redirecting - keep the page hidden, no flash
+      if (chromeOk === false) return;
       fillFooterLinks();
 
-      // Run the page initialisers side by side (only the one for the current
-      // page does any work), each on its own so one failure can't freeze the rest.
       var inits = [initDashboardPage, initRecipesListPage, initRecipeFormPage, initRecipeViewPage,
                    initInventoryPage, initAdminPage, initInviteAccountPage, initCreateAccountPage, initEditAccountPage,
-                   initProfilePage, initRecordSalePage, initAnalyticsPage];
+                   initProfilePage, initRecordSalePage, initAnalyticsPage, initPhotoSlideshow];
       var work = Promise.all(inits.map(function (fn) {
         return Promise.resolve().then(fn).catch(function (err) {
           if (!pageIsUnloading) console.error("Page init failed:", fn.name, err);

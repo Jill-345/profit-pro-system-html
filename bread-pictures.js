@@ -1,17 +1,3 @@
-/* ==========================================================================
-   DRR Bakery — bread pictures (shared)
-   Used by: breads.html (Our Breads) and inventory.html (Bread Stock).
-
-   Finds the picture that goes with a bread NAME. The name does not have to be
-   exact: "Ube Loaf", "ube loaf", "Cheese Bread" and "Ube Loaf (big)" all work.
-
-   PICTURES, in this order:
-   1. A photo an Admin chose with "Change photo" on the Our Breads page.
-   2. A photo you added to the project:  breads/<name>.jpg  (.png / .webp too).
-   3. A drawn picture (built in here) so there is never an empty space.
-
-   To teach it a new bread, add a line to BREADS below.
-   ========================================================================== */
 (function () {
   "use strict";
 
@@ -38,7 +24,6 @@
     { name: "Torta",           slug: "torta",           group: "Cookies & Sweets", shape: "slice",  c: ["#F0D08A", "#CFA553", "#FFF6DA"], note: "Light, fluffy sponge cake" }
   ];
 
-
   function getPhotos() {
     try { return JSON.parse(localStorage.getItem(PHOTO_KEY)) || {}; } catch (e) { return {}; }
   }
@@ -46,10 +31,9 @@
     var all = getPhotos();
     if (dataUrl) all[slug] = dataUrl; else delete all[slug];
     try { localStorage.setItem(PHOTO_KEY, JSON.stringify(all)); return true; }
-    catch (e) { return false; }   // storage full
+    catch (e) { return false; }
   }
 
-  /* ---------- drawn pictures ---------- */
   function drawing(b) {
     var base = b.c[0], dark = b.c[1], top = b.c[2], g = "";
     var shadow = '<ellipse cx="100" cy="124" rx="62" ry="9" fill="#3E2723" opacity="0.14"/>';
@@ -104,7 +88,7 @@
             '<path d="M36 100h128" stroke="' + base + '" stroke-width="10" opacity="0.8"/>' +
             '<path d="M36 100l64 20 64-20" fill="none" stroke="' + dark + '" stroke-width="2" opacity="0.4"/>';
         break;
-      default: /* roll */
+      default:
         g = '<ellipse cx="100" cy="86" rx="64" ry="32" fill="' + base + '"/>' +
             '<ellipse cx="100" cy="76" rx="56" ry="20" fill="' + top + '" opacity="0.65"/>' +
             '<path d="M60 68l12 40M86 62l10 46M114 62l-10 46M140 68l-12 40" stroke="' + dark + '" stroke-width="4" stroke-linecap="round" opacity="0.55"/>';
@@ -113,9 +97,6 @@
            '<rect width="200" height="150" fill="#F6EFE2"/>' + shadow + g + '</svg>';
   }
 
-
-  /* ---------- matching a name to a bread ---------- */
-  // Other ways people spell a bread -> the bread they mean.
   var ALIASES = {
     "pandecoco": "pande-coco", "pandecoconut": "pande-coco", "pandecoco": "pande-coco",
     "cheeserolls": "cheesebread", "cheeseroll": "cheesebread",
@@ -139,9 +120,9 @@
     var n = norm(name);
     if (!n) return GENERIC;
     var i, k;
-    for (i = 0; i < BREADS.length; i++) if (norm(BREADS[i].name) === n) return BREADS[i];          // exact
-    if (ALIASES[n] && bySlug(ALIASES[n])) return bySlug(ALIASES[n]);                              // spelling variant
-    var best = null, bestLen = 0;                                                                  // contains, longest wins
+    for (i = 0; i < BREADS.length; i++) if (norm(BREADS[i].name) === n) return BREADS[i];
+    if (ALIASES[n] && bySlug(ALIASES[n])) return bySlug(ALIASES[n]);
+    var best = null, bestLen = 0;
     for (i = 0; i < BREADS.length; i++) {
       k = norm(BREADS[i].name);
       if (n.indexOf(k) !== -1 && k.length > bestLen) { best = BREADS[i]; bestLen = k.length; }
@@ -151,7 +132,6 @@
     return GENERIC;
   }
 
-  /* ---------- showing a picture for a name ---------- */
   function showPhoto(frame, b, url) {
     var img = new Image();
     img.className = "bread-photo";
@@ -160,7 +140,6 @@
     img.src = url;
   }
 
-  // Looks for breads/<slug>.jpg / .png / .webp; keeps the drawing if none exist.
   function tryProjectPhoto(frame, b) {
     if (!b.slug) return;
     var i = 0;
@@ -174,7 +153,6 @@
     })();
   }
 
-  // Fills `frame` with the best picture for this bread name.
   function fill(frame, name) {
     var b = find(name);
     frame.innerHTML = drawing(name ? { name: name, shape: b.shape, c: b.c } : b);

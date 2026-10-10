@@ -35,13 +35,14 @@
 
 <main class="app-main">
   <div class="page-heading-row">
-    <h1 class="page-heading" id="analytics-heading">Today's Sale</h1>
+    <h1 class="page-heading" id="analytics-heading">Daily Sales (Last 7 Days)</h1>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <div class="field-control" style="min-width:170px;">
+      <div class="field-control" style="min-width:220px;">
         <select id="analytics-date-range">
-          <option value="today">Today</option>
-          <option value="7days">Last 7 days</option>
-          <option value="30days">Last 30 days</option>
+          <option value="day">Daily (last 7 days)</option>
+          <option value="week">Weekly (last 8 weeks)</option>
+          <option value="month">Monthly (last 12 months)</option>
+          <option value="year">Yearly (last 5 years)</option>
           <option value="all">All time</option>
         </select>
       </div>
@@ -73,12 +74,6 @@
     <div class="chart-card">
       <div class="chart-head">
         <h3 id="chart-trend-title">Sales vs Production Cost</h3>
-        <div class="chart-tabs" id="chart-trend-tabs" role="group" aria-label="Chart range">
-          <button type="button" data-mode="daily">Daily</button>
-          <button type="button" data-mode="weekly">Weekly</button>
-          <button type="button" data-mode="monthly" class="active">Monthly</button>
-          <button type="button" data-mode="yearly">Yearly</button>
-        </div>
         <div class="chart-legend" aria-hidden="false">
           <span><i class="chart-swatch" style="background:#C1662F"></i>Sales</span>
           <span><i class="chart-swatch" style="background:#2878A8"></i>Production cost</span>
