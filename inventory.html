@@ -161,7 +161,19 @@
         </div>
         <div class="field-group">
           <label for="ing-qty-purchased" id="ing-qty-label">Quantity purchased</label>
-          <div class="field-control"><input type="number" id="ing-qty-purchased" placeholder="e.g. 1" min="0"></div>
+          <div style="display:flex;gap:8px;">
+            <div class="field-control" style="flex:2;"><input type="number" id="ing-qty-purchased" placeholder="e.g. 5" min="0" step="any"></div>
+            <div class="field-control" style="flex:1;">
+              <select id="ing-qty-unit" aria-label="Unit of the quantity purchased">
+                <option value="g" selected>g</option>
+                <option value="kg">kg</option>
+                <option value="ml">ml</option>
+                <option value="L">L</option>
+                <option value="pc">pc</option>
+              </select>
+            </div>
+          </div>
+          <p class="field-hint" id="ing-qty-hint"></p>
         </div>
         <div class="field-group">
           <label for="ing-total-price">Total price paid</label>
@@ -224,12 +236,12 @@
       </div>
       <div class="form-row">
         <div class="field-group">
-          <label for="ing-start-stock">Starting stock quantity</label>
-          <div class="field-control"><input type="number" id="ing-start-stock" placeholder="e.g. 25000" min="0"></div>
+          <label for="ing-start-stock" id="ing-start-label">Starting stock quantity</label>
+          <div class="field-control"><input type="number" id="ing-start-stock" placeholder="e.g. 25000" min="0" step="any"></div>
         </div>
         <div class="field-group">
-          <label for="ing-low-stock">Low-stock threshold</label>
-          <div class="field-control"><input type="number" id="ing-low-stock" placeholder="e.g. 2000" min="0"></div>
+          <label for="ing-low-stock" id="ing-low-label">Low-stock threshold</label>
+          <div class="field-control"><input type="number" id="ing-low-stock" placeholder="e.g. 2000" min="0" step="any"></div>
         </div>
       </div>
       <div class="btn-row">

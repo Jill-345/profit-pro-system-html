@@ -37,16 +37,7 @@
   <div class="page-heading-row">
     <h1 class="page-heading" id="analytics-heading">Daily Sales (Last 7 Days)</h1>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <div class="field-control" style="min-width:220px;">
-        <select id="analytics-date-range">
-          <option value="day">Daily (last 7 days)</option>
-          <option value="week">Weekly (last 8 weeks)</option>
-          <option value="month">Monthly (last 12 months)</option>
-          <option value="year">Yearly (last 5 years)</option>
-          <option value="all">All time</option>
-        </select>
-      </div>
-          <button class="btn-outline" id="print-report-btn" type="button">Export to PDF</button>
+      <button class="btn-outline" id="print-report-btn" type="button">Export to PDF</button>
     </div>
   </div>
 
@@ -69,7 +60,23 @@
     </div>
   </div>
 
-  <h2 class="section-title">Sales Charts</h2>
+  <div class="section-head">
+    <h2 class="section-title">Sales Charts</h2>
+    <div class="section-filters">
+      <div class="field-control" style="min-width:220px;">
+        <select id="analytics-date-range">
+          <option value="day">Daily (last 7 days)</option>
+          <option value="week">Weekly (last 8 weeks)</option>
+          <option value="month">Monthly (last 12 months)</option>
+          <option value="year">Yearly (last 5 years)</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
+      <div class="field-control" id="period-picker" style="min-width:250px;" hidden>
+        <select id="period-select" aria-label="Choose a specific period"></select>
+      </div>
+    </div>
+  </div>
   <div class="chart-grid">
     <div class="chart-card">
       <div class="chart-head">

@@ -594,6 +594,23 @@
 
   function fmtQty(n) { return Number(Number(n).toFixed(2)).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
 
+  // Up to 4 decimals, no trailing zeros (0.0075 stays 0.0075; 1.275 stays 1.275).
+  function fmtQty4(n) { return Number(Number(n).toFixed(4)).toLocaleString(undefined, { maximumFractionDigits: 4 }); }
+  // "1,275 g (1.275 kg)" - the price is shown per kg / per L, so show the quantity that way too and
+  // quantity x price can be worked out on a calculator.
+  function qtyBoth(n, unit) {
+    var q = Number(n) || 0;
+    if (unit === "g") return fmtQty(q) + " g (" + fmtQty4(q / 1000) + " kg)";
+    if (unit === "ml") return fmtQty(q) + " ml (" + fmtQty4(q / 1000) + " L)";
+    return fmtQty(q) + " " + unit;
+  }
+
+  // Ingredients counted in pieces (eggs...) can't be used in fractions: round UP to whole pieces.
+  function usedAmount(qty, unit) {
+    var q = Number(qty) || 0;
+    return unit === "pc" ? Math.ceil(q - 1e-9) : q;
+  }
+
   function fmtUnitCost(n) {
     var v = Number(n) || 0;
     return v >= 1 ? v.toFixed(2) : v.toFixed(4);
@@ -1723,10 +1740,30 @@
       var ing = allIngredients.find(function (i) { return i.id === ingredientSelect.value; });
       if (!ing) { ingUnitSelect.innerHTML = ""; pickHint.textContent = ""; return; }
       var choices = (ing.unit === "g" || ing.unit === "kg") ? ["g", "kg"] : (ing.unit === "ml" || ing.unit === "L") ? ["ml", "L"] : [ing.unit];
-      ingUnitSelect.innerHTML = choices.map(function (u) { return '<option value="' + u + '"' + (u === ing.unit ? " selected" : "") + ">" + u + "</option>"; }).join("");
-      pickHint.textContent = "In stock: " + fmtQty(ing.stock_qty) + " " + ing.unit + "  \u00B7  " + fmtCostPer(ing.cost_per_unit, ing.unit);
+      // Recipes are written in g / ml, so that is what the box starts on even when the ingredient is stocked in kg / L.
+      var startUnit = ing.unit === "kg" ? "g" : (ing.unit === "L" ? "ml" : ing.unit);
+      ingUnitSelect.innerHTML = choices.map(function (u) { return '<option value="' + u + '"' + (u === startUnit ? " selected" : "") + ">" + u + "</option>"; }).join("");
+      pickHint.textContent = "In stock: " + qtyBoth(ing.stock_qty, ing.unit) + "  \u00B7  " + fmtCostPer(ing.cost_per_unit, ing.unit);
+      updateLinePreview();
+    }
+    // Live working: "1.275 kg x P60.80 / kg = P77.52" so a wrong unit is caught before the line is added.
+    function updateLinePreview() {
+      var out = document.getElementById("ing-line-preview");
+      if (!out) return;
+      var ing = allIngredients.find(function (i) { return i.id === ingredientSelect.value; });
+      var q = parseFloat(qtyInput.value);
+      if (!ing || !(q > 0)) { out.textContent = ""; return; }
+      var f = unitFactor(ingUnitSelect.value || ing.unit, ing.unit);
+      if (f === null) { out.textContent = ""; return; }
+      var base = q * f;
+      var priceUnit = ing.unit === "g" ? "kg" : (ing.unit === "ml" ? "L" : ing.unit);
+      var qtyInPriceUnit = (ing.unit === "g" || ing.unit === "ml") ? base / 1000 : base;
+      var perPriceUnit = (ing.unit === "g" || ing.unit === "ml") ? ing.cost_per_unit * 1000 : ing.cost_per_unit;
+      out.textContent = fmtQty4(qtyInPriceUnit) + " " + priceUnit + " \u00D7 " + peso(perPriceUnit) + " / " + priceUnit + " = " + peso(base * ing.cost_per_unit);
     }
     ingredientSelect.addEventListener("change", refreshPicker);
+    qtyInput.addEventListener("input", updateLinePreview);
+    ingUnitSelect.addEventListener("change", updateLinePreview);
 
     function renderIngredientRows() {
       var tbody = document.getElementById("recipe-ingredients-body");
@@ -1739,7 +1776,7 @@
           tr.innerHTML =
             "<td>" + item.name + "</td>" +
             "<td>" + item.category + "</td>" +
-            "<td>" + fmtQty(item.qty) + " " + item.unit + "</td>" +
+            "<td>" + qtyBoth(item.qty, item.unit) + "</td>" +
             "<td>" + fmtCostPer(item.lineCost / item.qty, item.unit) + "</td>" +
             "<td>" + peso(item.lineCost) + "</td>" +
             '<td><button class="btn-link-remove" data-remove="' + idx + '">Remove</button></td>';
@@ -1773,6 +1810,7 @@
         });
       }
       qtyInput.value = "";
+      updateLinePreview();
       renderIngredientRows();
       recompute();
     });
@@ -1954,7 +1992,7 @@
       var tr = document.createElement("tr");
       tr.innerHTML =
         "<td>" + item.name + "</td><td>" + item.category + "</td>" +
-        "<td>" + fmtQty(item.qty) + " " + item.unit + "</td>" +
+        "<td>" + qtyBoth(item.qty, item.unit) + "</td>" +
         "<td>" + fmtCostPer(item.lineCost / item.qty, item.unit) + "</td>" +
         "<td>" + peso(item.lineCost) + "</td>";
       body.appendChild(tr);
@@ -2025,7 +2063,7 @@
             "<td>" + nameCell + "</td>" +
             "<td>" + (ing.category || "") + "</td>" +
             "<td>" + ing.unit + "</td>" +
-            "<td>" + fmtQty(ing.stock_qty) + " " + ing.unit + "</td>" +
+            "<td>" + qtyBoth(ing.stock_qty, ing.unit) + "</td>" +
             "<td>" + (ing.low_stock_threshold != null ? fmtQty(ing.low_stock_threshold) + " " + ing.unit : "\u2014") + "</td>" +
             "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>";
           body.appendChild(tr);
@@ -2036,7 +2074,7 @@
           "<td>" + (ing.category || "") + "</td>" +
           "<td>" + ing.unit + "</td>" +
           "<td>" + fmtCostPer(ing.cost_per_unit, ing.unit) + "</td>" +
-          "<td>" + fmtQty(ing.stock_qty) + " " + ing.unit + "</td>" +
+          "<td>" + qtyBoth(ing.stock_qty, ing.unit) + "</td>" +
           "<td>" + (ing.low_stock_threshold != null ? fmtQty(ing.low_stock_threshold) + " " + ing.unit : "\u2014") + "</td>" +
           "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>" +
           '<td><a href="#" class="row-action" data-restock="' + ing.id + '">Restock</a></td>' +
@@ -2106,13 +2144,6 @@
                     '<div class="field-control" style="flex:1;"><select id="restock-pack-unit-' + ing.id + '">' + unitOptionsHtml(ing.unit) + '</select></div>' +
                   '</div>' +
                 '</div>' +
-                '<div class="field-group" style="margin-bottom:0;">' +
-                  '<label>Cost to use</label>' +
-                  '<div class="field-control"><select id="restock-method-' + ing.id + '">' +
-                    '<option value="latest">New price (latest purchase)</option>' +
-                    '<option value="average">Average with current stock</option>' +
-                  '</select></div>' +
-                '</div>' +
               '</div>' +
               '<div class="btn-row" style="margin-top:16px;">' +
                 '<button type="button" class="btn-outline" id="restock-cancel-' + ing.id + '">Cancel</button>' +
@@ -2149,10 +2180,7 @@
             var addedStock = qty * conversion;
             var oldStock = Number(ing.stock_qty) || 0;
             var newStockQty = round4(oldStock + addedStock);
-            var newCostPerUnit = latestCostPerUnit;
-            if (document.getElementById("restock-method-" + ing.id).value === "average" && oldStock > 0) {
-              newCostPerUnit = (oldStock * (Number(ing.cost_per_unit) || 0) + addedStock * latestCostPerUnit) / (oldStock + addedStock);
-            }
+            var newCostPerUnit = latestCostPerUnit; // the ingredient's price becomes what was just paid
 
             var saveBtn = document.getElementById("restock-save-" + ing.id);
             saveBtn.disabled = true;
@@ -2309,44 +2337,71 @@
     var priceInput = document.getElementById("ing-total-price");
     var costPreview = document.getElementById("ing-cost-preview");
 
-    function updateCostPreview() {
+    // ONE place that works out what was bought, used by both the live preview and Save so they can never disagree.
+    //  - Package chosen (sack, tray...): Quantity = number of packages; "Each one contains" gives the size.
+    //  - No package: Quantity is in the unit picked next to it (e.g. 5 kg), converted to the recipe unit.
+    function readPurchase() {
+      var unit = document.getElementById("ing-unit").value || "unit";
       var qty = parseFloat(qtyInput.value);
       var price = parseFloat(priceInput.value);
-      var unit = document.getElementById("ing-unit").value || "unit";
       var purchaseUnitRaw = document.getElementById("ing-purchase-unit").value.trim();
-      var purchaseUnit = purchaseUnitRaw || unit;
       var hasPackage = purchaseUnitRaw !== "";
-      document.getElementById("ing-pack-group").style.display = hasPackage ? "" : "none";
-      document.getElementById("ing-qty-label").textContent = "Quantity purchased (" + purchaseUnit + (hasPackage ? "s" : "") + ")";
-      if (!hasPackage) {
+      var qtyUnitEl = document.getElementById("ing-qty-unit");
+      var res = { unit: unit, qty: qty, price: price, hasPackage: hasPackage, purchaseUnitRaw: purchaseUnitRaw, conversion: 0, purchaseUnit: "", factorError: "", hint: "" };
+      if (hasPackage) {
+        var packSize = parseFloat(document.getElementById("ing-pack-size").value) || 0;
+        var packUnit = document.getElementById("ing-pack-unit").value;
+        var f = unitFactor(packUnit, unit);
+        if (f === null) { res.factorError = packUnit + " can't be converted to " + unit + ". Pick a matching unit (g/kg, ml/L or pc)."; return res; }
+        res.conversion = packSize * f;
+        res.purchaseUnit = purchaseUnitRaw;
+        res.hint = "1 " + purchaseUnitRaw + " = " + packSize + " " + packUnit +
+          (packUnit !== unit ? "  \u2192  " + res.conversion.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + unit + " in your recipes" : "");
+      } else {
+        var qUnit = qtyUnitEl.value || unit;
+        var qf = unitFactor(qUnit, unit);
+        if (qf === null) { res.factorError = qUnit + " can't be converted to " + unit + ". Pick a matching unit (g/kg, ml/L or pc)."; return res; }
+        res.conversion = qf;                       // recipe units in ONE quantity unit (1 kg = 1000 g)
+        res.purchaseUnit = qUnit;
+        res.hint = qUnit !== unit && qty > 0 ? qty.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + qUnit + " = " + (qty * qf).toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + unit + " in your recipes" : "";
+      }
+      return res;
+    }
+
+    function updateCostPreview() {
+      var p = readPurchase();
+      var unit = p.unit;
+      var qtyUnitEl = document.getElementById("ing-qty-unit");
+      document.getElementById("ing-pack-group").style.display = p.hasPackage ? "" : "none";
+      qtyUnitEl.parentNode.style.display = p.hasPackage ? "none" : "";
+      document.getElementById("ing-qty-label").textContent = p.hasPackage ? "Quantity purchased (" + p.purchaseUnitRaw + "s)" : "Quantity purchased";
+      if (!p.hasPackage) {
         document.getElementById("ing-pack-size").value = "1";
         document.getElementById("ing-pack-unit").value = unit;
       }
-      var packSize = parseFloat(document.getElementById("ing-pack-size").value) || 0;
-      var packUnit = document.getElementById("ing-pack-unit").value;
-      var factor = unitFactor(packUnit, unit);
-      var conversion = factor === null ? 0 : packSize * factor;
-      document.getElementById("ing-conversion").value = conversion > 0 ? conversion : "";
+      // Starting stock / low-stock alerts are typed in the recipe unit - say so.
+      document.getElementById("ing-start-label").textContent = "Starting stock quantity (" + unit + ")";
+      document.getElementById("ing-low-label").textContent = "Low-stock threshold (" + unit + ")";
+      document.getElementById("ing-conversion").value = p.conversion > 0 ? p.conversion : "";
 
-      var hintEl = document.getElementById("ing-conversion-hint");
-      hintEl.style.color = "";
-      if (factor === null) {
-        hintEl.textContent = packUnit + " can't be converted to " + unit + ". Pick a matching unit (g/kg, ml/L or pc).";
+      var hintEl = document.getElementById(p.hasPackage ? "ing-conversion-hint" : "ing-qty-hint");
+      document.getElementById("ing-conversion-hint").style.color = "";
+      document.getElementById("ing-qty-hint").style.color = "";
+      document.getElementById("ing-qty-hint").textContent = "";
+      if (p.factorError) {
+        hintEl.textContent = p.factorError;
         hintEl.style.color = "#9C3B1E";
       } else {
-        var label = purchaseUnitRaw || "pack";
-        hintEl.textContent = "1 " + label + " = " + packSize + " " + packUnit +
-          (packUnit !== unit ? "  \u2192  " + conversion.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + unit + " in your recipes" : "");
+        hintEl.textContent = p.hint;
       }
 
       var purchaseNote = document.getElementById("ing-cost-preview-purchase");
-
-      if (qty > 0 && price >= 0 && conversion > 0) {
-        var costPerPurchaseUnit = price / qty;
-        var costPerRecipeUnit = costPerPurchaseUnit / conversion;
+      if (p.qty > 0 && p.price >= 0 && p.conversion > 0) {
+        var costPerPurchaseUnit = p.price / p.qty;
+        var costPerRecipeUnit = costPerPurchaseUnit / p.conversion;
         costPreview.textContent = fmtCostPer(costPerRecipeUnit, unit);
-        purchaseNote.textContent = purchaseUnit !== unit
-          ? "(" + peso(costPerPurchaseUnit) + " per " + purchaseUnit + ")"
+        purchaseNote.textContent = p.purchaseUnit !== unit
+          ? "(" + peso(costPerPurchaseUnit) + " per " + p.purchaseUnit + ")"
           : "";
       } else {
         costPreview.textContent = fmtCostPer(0, unit);
@@ -2354,24 +2409,30 @@
       }
     }
     var packUnitTouched = false;
+    var qtyUnitTouched = false;
     function resetPackFields() {
       packUnitTouched = false;
+      qtyUnitTouched = false;
       document.getElementById("ing-pack-size").value = "1";
       document.getElementById("ing-pack-unit").value = document.getElementById("ing-unit").value;
+      document.getElementById("ing-qty-unit").value = document.getElementById("ing-unit").value;
       document.getElementById("ing-conversion").value = "1";
     }
     document.getElementById("ing-pack-unit").addEventListener("change", function () { packUnitTouched = true; });
+    document.getElementById("ing-qty-unit").addEventListener("change", function () { qtyUnitTouched = true; });
     document.getElementById("ing-unit").addEventListener("change", function () {
       var u = document.getElementById("ing-unit").value;
       var packUnitEl = document.getElementById("ing-pack-unit");
       if (!packUnitTouched || unitFactor(packUnitEl.value, u) === null) packUnitEl.value = u;
+      var qtyUnitEl2 = document.getElementById("ing-qty-unit");
+      if (!qtyUnitTouched || unitFactor(qtyUnitEl2.value, u) === null) qtyUnitEl2.value = u;
     });
     document.getElementById("ing-purchase-unit").addEventListener("change", function () {
       var packUnitEl = document.getElementById("ing-pack-unit");
       if (!packUnitTouched) packUnitEl.value = document.getElementById("ing-unit").value;
     });
 
-    [qtyInput, priceInput, document.getElementById("ing-unit"), document.getElementById("ing-purchase-unit"), document.getElementById("ing-pack-size"), document.getElementById("ing-pack-unit")].forEach(function (el) {
+    [qtyInput, priceInput, document.getElementById("ing-unit"), document.getElementById("ing-purchase-unit"), document.getElementById("ing-pack-size"), document.getElementById("ing-pack-unit"), document.getElementById("ing-qty-unit")].forEach(function (el) {
         el.addEventListener("input", updateCostPreview);
         el.addEventListener("change", updateCostPreview);
       });
@@ -2383,14 +2444,10 @@
       var unit = document.getElementById("ing-unit").value;
       var qty = parseFloat(qtyInput.value);
       var totalPrice = parseFloat(priceInput.value);
-      var packSize = parseFloat(document.getElementById("ing-pack-size").value);
-      var packFactor = unitFactor(document.getElementById("ing-pack-unit").value, unit);
-      if (packFactor === null) {
-        toast("Each purchase unit must use a unit that matches the recipe unit (g/kg, ml/L or pc).");
-        return;
-      }
-      var conversion = packSize * packFactor;
-      var purchaseUnit = document.getElementById("ing-purchase-unit").value.trim() || (conversion === 1 ? unit : "pack");
+      var purchase = readPurchase();
+      if (purchase.factorError) { toast(purchase.factorError); return; }
+      var conversion = purchase.conversion;       // recipe units in ONE purchased unit (sack, tray, kg...)
+      var purchaseUnit = purchase.purchaseUnit;
       var startStockInput = document.getElementById("ing-start-stock").value;
       var startStock = startStockInput !== "" ? parseFloat(startStockInput) : (qty * conversion || 0);
       var lowStockVal = document.getElementById("ing-low-stock").value;
@@ -2511,7 +2568,7 @@
       var lines = recipeLineCache[recipe.id];
       var scale = qty / recipe.base_batch_size;
       lines.forEach(function (item) {
-        var usedQty = item.qty * scale;
+        var usedQty = usedAmount(item.qty * scale, item.unit);
         var have = ingredients.find(function (i) { return i.id === item.ingredientId; });
         var short = have && Number(have.stock_qty) + 1e-9 < usedQty;
         var tr = document.createElement("tr");
@@ -2554,7 +2611,7 @@
       var shortNames = [];
       var consumed = lines.map(function (item) {
         var ing = ingredients.find(function (i) { return i.id === item.ingredientId; });
-        var usedQty = item.qty * scale;
+        var usedQty = usedAmount(item.qty * scale, item.unit);
         if (ing && Number(ing.stock_qty) + 1e-9 < usedQty) shortNames.push(item.name + " (need " + fmtQty(usedQty) + " " + item.unit + ", have " + fmtQty(ing.stock_qty) + ")");
         return { ingredientId: item.ingredientId, newStockQty: ing ? ing.stock_qty - usedQty : 0 };
       });
@@ -3250,6 +3307,67 @@
   var TREND_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var TREND_MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function ymd(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+
+  // One period picked with the second dropdown: a day, a week (Mon-Sun), a month or a year.
+  // value: day/week "YYYY-MM-DD" (week = its Monday), month "YYYY-MM", year "YYYY".
+  function periodFromValue(key, value) {
+    var start, end, name, heading, p, last;
+    var full = function (d) { return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
+    var short = function (d) { return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
+    value = String(value || "");
+    if (key === "day" || key === "week") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+      p = value.split("-");
+      start = new Date(+p[0], +p[1] - 1, +p[2]);
+      if (key === "week") start = new Date(start.getFullYear(), start.getMonth(), start.getDate() - ((start.getDay() + 6) % 7));
+      if (key === "day") {
+        end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+        name = start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+        heading = "Sales on " + name;
+      } else {
+        end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+        last = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
+        name = "Week of " + short(start) + " \u2013 " + full(last);
+        heading = "Sales \u2014 " + name;
+      }
+    } else if (key === "month") {
+      if (!/^\d{4}-\d{2}$/.test(value)) return null;
+      p = value.split("-");
+      start = new Date(+p[0], +p[1] - 1, 1);
+      end = new Date(+p[0], +p[1], 1);
+      name = TREND_MONTHS_LONG[start.getMonth()] + " " + start.getFullYear();
+      heading = "Sales \u2014 " + name;
+    } else if (key === "year") {
+      if (!/^\d{4}$/.test(value)) return null;
+      start = new Date(+value, 0, 1);
+      end = new Date(+value + 1, 0, 1);
+      name = String(+value);
+      heading = "Sales \u2014 " + name;
+    } else { return null; }
+    if (isNaN(start.getTime())) return null;
+    return { key: key, specific: true, value: value, start: start, end: end, info: { name: name, range: name, label: name }, heading: heading };
+  }
+
+  // Keeps only the sales that fall inside the chosen period (or everything when none is chosen).
+  function salesInPeriod(sales, sel) {
+    if (!sel || !sel.specific) return sales;
+    var a = sel.start.getTime(), b = sel.end.getTime();
+    return sales.filter(function (s) { var t = new Date(s.sale_datetime).getTime(); return t >= a && t < b; });
+  }
+
+  // Tells the chart which bar is the chosen period so it can stand out.
+  function markSelected(trend, sel) {
+    trend.selected = -1; trend.selectedLabel = "";
+    if (sel && sel.specific) {
+      for (var i = 0; i < trend.buckets.length; i++) {
+        if (trend.buckets[i].start.getTime() === sel.start.getTime()) { trend.selected = i; trend.selectedLabel = sel.info.label; break; }
+      }
+    }
+    return trend;
+  }
+
   function buildTrend(rangeKey, sales) {
     var now = new Date(), y = now.getFullYear(), m = now.getMonth(), dd = now.getDate();
     var list = [], mode, title, sub, labelEvery = 1, i, d;
@@ -3395,8 +3513,10 @@
       }
     }
 
-    var periodDetail = periodInfo(rangeKey);
+    var selection = extra && extra.sel && extra.sel.specific ? extra.sel : null;
+    var periodDetail = selection ? selection.info : periodInfo(rangeKey);
     var rangeLabel = periodDetail.label, rangeName = periodDetail.name;
+    var rangeNameText = selection ? rangeName : rangeName.toLowerCase(); // "last 7 days" vs "Week of Oct 5 - Oct 11, 2026"
     var session = getSession();
     var now = new Date();
     var generatedAt = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) + ", " + now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -3505,8 +3625,10 @@
       data.forEach(function (d, i) {
         var cx = L + gw * i + gw / 2;
         var hs = d.sales > 0 ? Math.max(1.5, ph * d.sales / sc.max) : 0, hc = d.cost > 0 ? Math.max(1.5, ph * d.cost / sc.max) : 0;
-        if (hs) { fillC(C_SALES); doc.rect(cx - bw - 0.5, B - hs, bw, hs, "F"); }
-        if (hc) { fillC(C_COST); doc.rect(cx + 0.5, B - hc, bw, hc, "F"); }
+        var faded = trend.selected >= 0 && i !== trend.selected;
+        var tint = function (c) { return faded ? [Math.round(c[0] + (255 - c[0]) * 0.65), Math.round(c[1] + (255 - c[1]) * 0.65), Math.round(c[2] + (255 - c[2]) * 0.65)] : c; };
+        if (hs) { fillC(tint(C_SALES)); doc.rect(cx - bw - 0.5, B - hs, bw, hs, "F"); }
+        if (hc) { fillC(tint(C_COST)); doc.rect(cx + 0.5, B - hc, bw, hc, "F"); }
         doc.setFont(F.text, "normal"); doc.setFontSize(7.5); setC(MOCHA);
         if (i % (trend.labelEvery || 1) === 0) doc.text(fitText(d.label, gw * (trend.labelEvery || 1) + 2), cx, B + 13, { align: "center" });
       });
@@ -3563,10 +3685,10 @@
 
     y = sectionTitle("1.  Executive Summary", y);
     var summaryText = sales.length
-      ? "For the reporting period (" + rangeName.toLowerCase() + "), DRR Bakery recorded " + sales.length + " sales transaction" + (sales.length === 1 ? "" : "s") +
+      ? "For the reporting period (" + rangeNameText + "), DRR Bakery recorded " + sales.length + " sales transaction" + (sales.length === 1 ? "" : "s") +
         " totalling " + units.toLocaleString("en-US") + " pieces sold. Total sales amounted to " + money(totalSales) + " against a production cost of " + money(totalCost) +
         ", resulting in a gross profit of " + money(gross) + " (" + pct2(grossPct) + " gross margin)."
-      : "No sales were recorded for the reporting period (" + rangeName.toLowerCase() + "). Figures below reflect zero activity.";
+      : "No sales were recorded for the reporting period (" + rangeNameText + "). Figures below reflect zero activity.";
     doc.setFont("times", "normal"); doc.setFontSize(10.5); setC(CRUST);
     var lines = doc.splitTextToSize(summaryText, CW);
     doc.text(lines, M, y, { lineHeightFactor: 1.45 });
@@ -3585,23 +3707,31 @@
     y += 58 + 30;
 
     y = sectionTitle("3.  Sales Charts", y);
-    var trend = buildTrend(rangeKey, sales);
+    // The chart always shows the whole window (all days / weeks / months / years); the chosen one is highlighted.
+    var trend = markSelected(buildTrend(rangeKey, (extra && extra.windowSales) || sales), selection);
     var trendActive = trend.buckets.filter(function (b) { return b.sales > 0 || b.cost > 0; });
     var trendTotal = trend.buckets.reduce(function (t, b) { return { pcs: t.pcs + b.pcs, sales: t.sales + b.sales, cost: t.cost + b.cost }; }, { pcs: 0, sales: 0, cost: 0 });
     if (trendActive.length) {
       y = drawTrendChart(y, trend);
+      if (selection) {
+        doc.setFont(F.text, "italic"); doc.setFontSize(8.5); setC(MOCHA);
+        y = ensure(y, 16);
+        doc.text("Highlighted: " + selection.info.label + ". The summary, best / lowest sellers, ranking and bread sales in this report cover only this period.", M, y);
+        y += 16;
+      }
       y = ensure(y, 40 + Math.min(trend.buckets.length + 1, 12) * 17);
       doc.autoTable(Object.assign({}, tableBase, {
         startY: y,
         head: [[{ daily: "Date", weekly: "Week", monthly: "Month", yearly: "Year" }[trend.mode] || "Period", "Pieces Sold", "Sales", "Production Cost", "Profit"]],
         body: trend.buckets.map(function (b) { return [b.full, b.pcs.toLocaleString("en-US"), money(b.sales), money(b.cost), money(b.sales - b.cost)]; })
-          .concat([["Total", trendTotal.pcs.toLocaleString("en-US"), money(trendTotal.sales), money(trendTotal.cost), money(trendTotal.sales - trendTotal.cost)]]),
+          .concat([[selection ? "Total (all periods shown)" : "Total", trendTotal.pcs.toLocaleString("en-US"), money(trendTotal.sales), money(trendTotal.cost), money(trendTotal.sales - trendTotal.cost)]]),
         styles: Object.assign({}, tableBase.styles, { fontSize: 8, cellPadding: { top: 4, bottom: 4, left: 8, right: 8 } }),
         headStyles: Object.assign({}, tableBase.headStyles, { fontSize: 8, cellPadding: { top: 5, bottom: 5, left: 8, right: 8 } }),
         columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
         didParseCell: function (d) {
           alignHead(d, [1, 2, 3, 4], []);
           if (d.section === "body" && d.row.index === trend.buckets.length) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = [250, 233, 196]; }
+          if (d.section === "body" && d.row.index === trend.selected) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = [255, 241, 214]; }
         }
       }));
       y = doc.lastAutoTable.finalY + 16;
@@ -3761,6 +3891,36 @@
 
     var recipes = await fetchRecipes();
 
+    // Second dropdown: pick ONE day / week / month / year from the chart's own window.
+    // The first option ("All ...") shows the whole window, so no separate reset button is needed.
+    var periodWrap = document.getElementById("period-picker");
+    var periodSelect = document.getElementById("period-select");
+    var currentValue = ""; // "" = whole window
+
+    function currentSelection() {
+      var key = rangeSelect.value;
+      if (key !== "all" && currentValue) { var picked = periodFromValue(key, currentValue); if (picked) return picked; }
+      return { key: key, specific: false, info: periodInfo(key) };
+    }
+    function buildPeriodOptions() {
+      var key = rangeSelect.value;
+      currentValue = "";
+      if (key === "all") { periodWrap.hidden = true; periodSelect.innerHTML = ""; return; }
+      periodWrap.hidden = false;
+      var allText = { day: "All days (last 7 days)", week: "All weeks (last 8 weeks)", month: "All months (last 12 months)", year: "All years (last 5 years)" }[key];
+      var thisText = { day: " (today)", week: " (this week)", month: " (this month)", year: " (this year)" }[key];
+      var buckets = buildTrend(key, []).buckets;
+      var html = '<option value="">' + allText + "</option>";
+      for (var i = buckets.length - 1; i >= 0; i--) {
+        var b = buckets[i].start;
+        var value = key === "month" ? b.getFullYear() + "-" + pad2(b.getMonth() + 1) : (key === "year" ? String(b.getFullYear()) : ymd(b));
+        var p = periodFromValue(key, value);
+        html += '<option value="' + value + '">' + p.info.name + (i === buckets.length - 1 ? thisText : "") + "</option>";
+      }
+      periodSelect.innerHTML = html;
+      periodSelect.value = "";
+    }
+
     async function renderTotals(sales) {
       var totalSales = sales.reduce(function (s, x) { return s + x.total_amount; }, 0);
       var totalCost = sales.reduce(function (s, x) { return s + x.food_cost; }, 0);
@@ -3869,7 +4029,7 @@
       var titleEl = document.getElementById("chart-trend-title");
       if (titleEl) titleEl.textContent = "Sales vs Production Cost (" + trend.title + ")";
       var subEl = document.getElementById("chart-trend-sub");
-      if (subEl) subEl.textContent = trend.sub;
+      if (subEl) subEl.textContent = trend.sub + (trend.selected >= 0 ? "  \u00B7  Selected: " + trend.selectedLabel : "");
       var data = trend.buckets;
       var any = data.some(function (d) { return d.sales > 0 || d.cost > 0; });
       if (!any) { emptyChart(el, "No sales recorded in this period yet."); return; }
@@ -3892,7 +4052,8 @@
         var cx = L + gw * i + gw / 2;
         var hs = d.sales > 0 ? Math.max(3, ph * d.sales / max) : 0, hc = d.cost > 0 ? Math.max(3, ph * d.cost / max) : 0;
         var tip = '<strong>' + svgEsc(d.full) + '</strong><br><i class="chart-swatch" style="background:' + C_SALES + '"></i>Sales ' + peso(d.sales) + '<br><i class="chart-swatch" style="background:' + C_COST + '"></i>Cost ' + peso(d.cost) + '<br>Profit ' + peso(d.sales - d.cost) + '<br>' + d.pcs.toLocaleString("en-US") + ' pcs sold';
-        out += '<g data-tip="' + svgEsc(tip) + '" tabindex="0">';
+        var dimmed = trend.selected >= 0 && i !== trend.selected;
+        out += '<g data-tip="' + svgEsc(tip) + '" tabindex="0"' + (dimmed ? ' opacity="0.3"' : '') + '>';
         out += '<rect x="' + (cx - gw / 2) + '" y="' + T + '" width="' + gw + '" height="' + ph + '" fill="transparent"/>';
         out += '<path d="' + barPath(cx - bw - 1, T + ph - hs, bw, hs, 3) + '" fill="' + C_SALES + '"/>';
         out += '<path d="' + barPath(cx + 1, T + ph - hc, bw, hc, 3) + '" fill="' + C_COST + '"/>';
@@ -4005,13 +4166,15 @@
     }
 
     var refreshId = 0;
-    async function refreshForRange(rangeKey) {
+    async function refreshForSelection() {
       var myRefresh = ++refreshId;
-      headingEl.textContent = headingByRange[rangeKey] || "Sales";
-      var sales = await fetchSales(rangeKey);
+      var sel = currentSelection();
+      headingEl.textContent = sel.specific ? sel.heading : (headingByRange[sel.key] || "Sales");
+      var windowSales = await fetchSales(sel.key);
       if (myRefresh !== refreshId) return;
+      var sales = salesInPeriod(windowSales, sel);
       renderTotals(sales);
-      renderTrendChart(buildTrend(rangeKey, sales));
+      renderTrendChart(markSelected(buildTrend(sel.key, windowSales), sel));
       renderMarginChart(sales);
       drawSalesRank("chart-best", sales, false);
       drawSalesRank("chart-lowest", sales, true);
@@ -4019,7 +4182,8 @@
       renderBreadSales(sales);
     }
 
-    rangeSelect.addEventListener("change", function () { refreshForRange(rangeSelect.value); });
+    rangeSelect.addEventListener("change", function () { buildPeriodOptions(); refreshForSelection(); });
+    periodSelect.addEventListener("change", function () { currentValue = periodSelect.value; refreshForSelection(); });
 
     function populateBreadItemSelect() {
       var select = document.getElementById("forecast-bread-item");
@@ -4097,18 +4261,21 @@
       var originalText = btn.textContent;
       btn.disabled = true;
       btn.textContent = "Generating\u2026";
-      var sales = await fetchSales(rangeSelect.value);
+      var selNow = currentSelection();
+      var windowSales = await fetchSales(selNow.key);
+      var sales = salesInPeriod(windowSales, selNow);
       var fcSel = document.getElementById("forecast-bread-item");
       var fc = recomputeForecast();
       fc.name = fcSel.options[fcSel.selectedIndex] ? fcSel.options[fcSel.selectedIndex].textContent : "";
-      await exportReportToPdf(rangeSelect.value, sales, recipes, { forecast: fc });
+      await exportReportToPdf(rangeSelect.value, sales, recipes, { forecast: fc, sel: selNow, windowSales: windowSales });
       btn.disabled = false;
       btn.textContent = originalText;
     });
 
     populateBreadItemSelect();
     if (recipes.length) recomputeForecast();
-    await refreshForRange(rangeSelect.value);
+    buildPeriodOptions();
+    await refreshForSelection();
   }
 
   function fillFooterBasics() {
