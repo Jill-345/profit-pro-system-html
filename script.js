@@ -28,7 +28,7 @@
   var REMEMBER_KEY = "drrBakeryRememberedEmail";
   var SESSION_KEY = "drrBakerySession";
 
-  var CONTACT_PHONE = "+63 000 000 0000";
+  var CONTACT_PHONE = "+63 918 485 1922";
 
   var ROLES = ["Super Admin", "Admin", "Staff"];
 
@@ -72,6 +72,14 @@
   }
   function joinName(first, middle, last) {
     return [first, middle, last].map(function (x) { return String(x || "").trim(); }).filter(Boolean).join(" ");
+  }
+
+  // "First M. Last" (middle name shortened to its initial), e.g. for the PDF "Prepared by" line
+  function formalName(sess) {
+    if (!sess) return "";
+    var n = sess.nameParts || splitFullName(sess.fullName || sess.firstName);
+    var mid = String(n.middle || "").trim().split(/\s+/).filter(Boolean).map(function (w) { return w.charAt(0).toUpperCase() + "."; }).join("");
+    return joinName(n.first, mid, n.last) || sess.fullName || sess.firstName || "";
   }
 
   function getSession() {
@@ -961,6 +969,7 @@
     var profile;
     if (cached && cached.id === supaSession.user.id && cached.role && (cached.fullName || cached.firstName)) {
       profile = { full_name: cached.fullName || cached.firstName, email: cached.email, role: cached.role, status: "Active" };
+      if (cached.nameParts) { profile.first_name = cached.nameParts.first; profile.middle_name = cached.nameParts.middle; profile.last_name = cached.nameParts.last; }
       profilePromise.then(async function (r) {
         if (pageIsUnloading || !r || r.error) return;
         var p = r.data;
@@ -969,7 +978,7 @@
           sessionStorage.removeItem(SESSION_KEY);
           window.location.href = "index.html";
         } else if (p.role !== cached.role || p.full_name !== profile.full_name) {
-          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: supaSession.user.id, firstName: nameOf(p).first || p.full_name, fullName: p.full_name, email: p.email, role: p.role }));
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: supaSession.user.id, firstName: nameOf(p).first || p.full_name, fullName: p.full_name, nameParts: nameOf(p), email: p.email, role: p.role }));
           window.location.reload();
         }
       }).catch(function () {});
@@ -984,7 +993,7 @@
     }
 
     var firstName = nameOf(profile).first || profile.full_name;
-    var session = { id: supaSession.user.id, firstName: firstName, fullName: profile.full_name, email: profile.email, role: profile.role };
+    var session = { id: supaSession.user.id, firstName: firstName, fullName: profile.full_name, nameParts: nameOf(profile), email: profile.email, role: profile.role };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 
     var page = currentPageFile();
@@ -1057,7 +1066,6 @@
     return true;
   }
 
-  var RESTRICTED_REPLY = "Sorry, you don't have permission to access pricing or profitability information.";
 
   async function fetchAiChatContext() {
     var result = await supabaseClient.rpc("get_ai_chat_context");
@@ -1111,133 +1119,412 @@
       role: ctx.role, isPrivileged: isPrivileged, margins: margins, unsold: unsold,
       topSellerByQty: topSellerByQty, revenueByRecipe: revenueByRecipe, qtyByRecipe: qtyByRecipe,
       highCostIngredients: highCostIngredients, lowStock: ctx.low_stock || [], targetPct: ctx.target_food_cost_pct || 30,
-      hasAnyRecipes: ctx.recipes.length > 0, hasAnySales: ctx.sales.length > 0
+      recipeNames: ctx.recipes.map(function (r) { return r.name; }), ingredients: ctx.ingredients || [], hasAnyRecipes: ctx.recipes.length > 0, hasAnySales: ctx.sales.length > 0
     };
   }
 
+  /* ---- Language: the assistant answers in Tagalog when the user writes in Tagalog (or Taglish) ---- */
+  var chatLang = "en";
+  var TAGALOG_WORDS = /\b(ano|anong|ang|ng|mga|sa|ako|ko|mo|namin|natin|ninyo|aming|amin|akin|po|opo|ba|ilan|magkano|pwede|puwede|paano|pano|bakit|alin|sino|saan|kailan|meron|mayroon|wala|kulang|ubos|maubos|paubos|benta|nabenta|nabebenta|binebenta|tinda|presyo|tubo|kita|kumita|gastos|sangkap|harina|asukal|itlog|mantikilya|tinapay|gusto|kailangan|yung|yong|ito|iyan|iyon|hindi|di|oo|sige|salamat|magandang|kumusta|kamusta|musta|paalam|mas|pinaka|pinakamabenta|marami|konti|kaunti|natitira|bumibili|dapat|dagdagan|bawasan|itigil|tigilan|alisin|unahin|tulong|resipe|magluto|gumawa|tama|lang|naman|na|pa|din|rin|nga|talaga|mahal|mura|bilhin|bumili|araw|ngayon|buod|mabenta|baka)\b/i;
+  function detectChatLang(q) { return TAGALOG_WORDS.test(q || "") ? "tl" : "en"; }
+  function T(en, tl) { return chatLang === "tl" ? tl : en; }
+
+  function restrictedReply() {
+    return T("Sorry, I can't share prices or profit details with this account. Only Admin and Super Admin accounts can see them. I can still help you with stock levels and your best seller.",
+             "Pasensya na, hindi ko maibabahagi ang presyo o tubo sa account na ito. Admin at Super Admin lang ang makakakita nito. Matutulungan pa rin kita sa stock at sa pinakamabentang tinapay.");
+  }
+
+  /* ---- Small helpers so the replies read like a person wrote them ---- */
+  function chatPct(n) { return r2(n).toFixed(2) + "%"; }
+  function chatList(names) {          // ["A"] -> "A", ["A","B"] -> "A and B", ["A","B","C"] -> "A, B, and C"
+    var and = T("and", "at");
+    if (names.length <= 1) return names.join("");
+    if (names.length === 2) return names[0] + " " + and + " " + names[1];
+    return names.slice(0, -1).join(", ") + (chatLang === "tl" ? " at " : ", and ") + names[names.length - 1];
+  }
+  function chatQty(n, unit) {         // 14506.66 g -> "14.51 kg", 8 pc -> "8 pc"
+    var q = Number(n) || 0;
+    if (unit === "g" && q >= 1000) return fmtQty(q / 1000) + " kg";
+    if (unit === "ml" && q >= 1000) return fmtQty(q / 1000) + " L";
+    return fmtQty(q) + " " + unit;
+  }
+  function chatPieces(n) { return chatLang === "tl" ? n + " piraso" : n + (n === 1 ? " piece" : " pieces"); }
+  function chatBullets(lines) { return lines.map(function (l) { return "• " + l; }).join("\n"); }
+  function chatNames(list, max) {     // names, but no more than `max`, then "and 2 more"
+    var names = list.map(function (r) { return r.name; });
+    if (names.length <= max) return chatList(names);
+    var more = names.length - max;
+    return names.slice(0, max).join(", ") + T(", and " + more + " more", " at " + more + " pa");
+  }
+  function notSoldText(list, max) {
+    return T(chatNames(list, max) + " " + (list.length === 1 ? "has" : "have") + " not been sold yet.",
+             "Hindi pa nabebenta ang " + chatNames(list, max) + ".");
+  }
+  function keepText(pct) { return T("you keep " + chatPct(pct) + " of its price", chatPct(pct) + " ng presyo ang naiuuwi mo"); }
+  function keepOnlyText(pct) { return T("you keep only " + chatPct(pct) + " of its price", chatPct(pct) + " lang ng presyo ang naiuuwi mo"); }
+  function cheaperTip() { return T("Try raising the price a little, or use cheaper ingredients.", "Subukang itaas nang kaunti ang presyo, o gumamit ng mas murang sangkap."); }
+
   function recIncreaseProfit(a) {
-    if (!a.margins.length) return "I don't have enough recipe pricing data yet to ground a recommendation \u2014 add selling prices to your recipes first.";
-    var parts = [];
+    if (!a.margins.length) return T("I can't give advice on profit yet because your recipes don't have selling prices. Please add a selling price to each recipe first.",
+      "Hindi pa kita mabibigyan ng payo tungkol sa tubo dahil walang presyo ang mga recipe mo. Maglagay muna ng presyo sa bawat recipe.");
+    var tips = [];
     var best = a.margins[0];
-    parts.push("focus more on " + best.name + ", which has your best margin right now at " + r2(best.margin) + "%");
-    var weak = a.margins.filter(function (m) { return m.margin < 40; });
-    if (weak.length) parts.push("review pricing on " + weak.slice(0, 2).map(function (m) { return m.name + " (" + r2(m.margin) + "% margin)"; }).join(" and "));
-    if (a.highCostIngredients.length) parts.push("keep an eye on " + a.highCostIngredients[0].name + ", which has risen " + r2(a.highCostIngredients[0].delta) + "% in cost since it was first logged");
-    return "Based on the current product and profitability data, I'd " + parts.join("; also ") + ". That combination \u2014 leaning on your strongest margins while fixing your weakest \u2014 is usually the fastest way to move overall profit.";
+    tips.push(T("Sell more " + best.name + ". It gives you the best profit: " + keepText(best.margin) + " (" + peso(best.price - best.cost) + " from every " + peso(best.price) + " piece).",
+      "Ibenta pa nang mas marami ang " + best.name + ". Ito ang pinakamalaki ang tubo: " + keepText(best.margin) + " (" + peso(best.price - best.cost) + " sa bawat " + peso(best.price) + " na piraso)."));
+    var weak = a.margins.filter(function (m) { return r2(m.margin) < 40 && m.name !== best.name; });
+    if (weak.length) {
+      var weakList = chatList(weak.slice(0, 2).map(function (m) { return m.name + " (" + keepOnlyText(m.margin) + ")"; }));
+      tips.push(T("Check the price of " + weakList + ". " + cheaperTip(), "Tingnan ang presyo ng " + weakList + ". " + cheaperTip()));
+    }
+    if (a.highCostIngredients.length) {
+      var hi = a.highCostIngredients[0];
+      tips.push(T("The cost of " + hi.name + " went up by " + chatPct(hi.delta) + " since you first added it. Ask your supplier for a better price, or compare prices from other suppliers.",
+        "Tumaas ng " + chatPct(hi.delta) + " ang presyo ng " + hi.name + " mula nang unang ilagay ito. Humingi ng mas magandang presyo sa supplier mo, o ikumpara ang presyo ng ibang supplier."));
+    }
+    return T("Here are some ways to earn more profit:\n", "Narito ang ilang paraan para lumaki ang tubo mo:\n") + chatBullets(tips);
   }
 
   function recBestMargin(a) {
-    if (!a.margins.length) return "No recipes have both a cost and a selling price set yet, so I can't calculate margins.";
+    if (!a.margins.length) return T("I can't tell yet because none of your recipes has both a cost and a selling price.", "Hindi ko pa masasabi dahil walang recipe na may gastos at presyo.");
     var best = a.margins[0];
-    return best.name + " has your best profit margin right now, at " + r2(best.margin) + "% (\u20B1" + (best.price - best.cost).toFixed(2) + " profit per piece, selling at \u20B1" + best.price.toFixed(2) + "). Worth prioritizing in promotions or batch size.";
+    return T(best.name + " gives you the best profit. " + keepText(best.margin).replace(/^y/, "Y") + ": " + peso(best.price - best.cost) + " from every " + peso(best.price) + " piece. It's a good bread to promote.",
+      best.name + " ang pinakamalaki ang tubo. " + keepText(best.margin) + ": " + peso(best.price - best.cost) + " sa bawat " + peso(best.price) + " na piraso. Magandang i-promote ang tinapay na ito.");
   }
 
   function recWorstMargin(a) {
-    if (!a.margins.length) return "No recipes have both a cost and a selling price set yet, so I can't calculate margins.";
+    if (!a.margins.length) return T("I can't tell yet because none of your recipes has both a cost and a selling price.", "Hindi ko pa masasabi dahil walang recipe na may gastos at presyo.");
     var worst = a.margins[a.margins.length - 1];
-    return worst.name + " has your thinnest margin at " + r2(worst.margin) + "% \u2014 costing \u20B1" + worst.cost.toFixed(2) + " against a \u20B1" + worst.price.toFixed(2) + " selling price. Consider raising its price or trimming its ingredient cost.";
+    if (worst.price - worst.cost <= 0) {
+      return T(worst.name + " costs " + peso(worst.cost) + " to make, but it sells for only " + peso(worst.price) + ". You aren't earning anything from it, so please raise its price.",
+        "Nagkakahalaga ng " + peso(worst.cost) + " ang paggawa ng " + worst.name + ", pero " + peso(worst.price) + " lang ang benta. Wala kang kinikita rito, kaya pakitaasan ang presyo.");
+    }
+    return T(worst.name + " gives you the smallest profit. It costs " + peso(worst.cost) + " to make and sells for " + peso(worst.price) + ", so you keep only " + peso(worst.price - worst.cost) + " (" + chatPct(worst.margin) + " of its price). " + cheaperTip(),
+      worst.name + " ang pinakamaliit ang tubo. " + peso(worst.cost) + " ang gastos sa paggawa at " + peso(worst.price) + " ang benta, kaya " + peso(worst.price - worst.cost) + " lang ang naiuuwi mo (" + chatPct(worst.margin) + " ng presyo). " + cheaperTip());
   }
 
   function recReduceCosts(a) {
-    if (!a.highCostIngredients.length) return "None of your ingredients have moved more than 5% above their originally logged cost \u2014 nothing stands out as a cost driver right now.";
+    if (!a.highCostIngredients.length) return T("No ingredient has gone up by more than 5% since you first added it, so nothing needs your attention right now.",
+      "Walang sangkap na tumaas nang higit sa 5% mula nang unang ilagay, kaya walang kailangang aksyunan ngayon.");
     var top = a.highCostIngredients.slice(0, 3);
-    return "Since being added, " + top.map(function (i) { return i.name + " (+" + r2(i.delta) + "%)"; }).join(", ") + " " + (top.length > 1 ? "have" : "has") + " gone up the most in cost. Those are the ingredients most worth negotiating with suppliers on, or swapping recipes to use less of.";
+    return T("These ingredients have become more expensive since you first added them:\n", "Tumaas ang presyo ng mga sangkap na ito mula nang unang ilagay:\n") +
+      chatBullets(top.map(function (i) { return i.name + T(": up by ", ": tumaas ng ") + chatPct(i.delta); })) +
+      T("\nYou could ask your suppliers for a better price, or see if you can use a little less of them in your recipes.",
+        "\nPuwede kang humingi ng mas magandang presyo sa supplier, o tingnan kung kaya mong bawasan nang kaunti ang gamit nito sa mga recipe.");
   }
 
   function recImprovePricing(a) {
-    if (!a.margins.length) return "I don't have pricing data to compare against your " + a.targetPct + "% target food cost yet.";
-    var offTarget = a.margins.filter(function (m) {
-      var costPct = m.price > 0 ? (m.cost / m.price) * 100 : 0;
-      return Math.abs(costPct - a.targetPct) > 10;
-    });
-    if (!offTarget.length) return "Your pricing is holding close to your " + a.targetPct + "% target food cost across the board \u2014 nothing urgent to change.";
-    return offTarget.slice(0, 3).map(function (m) {
-      var costPct = (m.cost / m.price) * 100;
-      return m.name + " is running " + r2(costPct) + "% food cost against your " + a.targetPct + "% target";
-    }).join("; ") + ". Adjusting those prices (or the recipes behind them) would bring them back in line.";
+    if (!a.margins.length) return T("I can't check your prices yet because none of your recipes has both a cost and a selling price.", "Hindi ko pa matitingnan ang presyo mo dahil walang recipe na may gastos at presyo.");
+    var over = a.margins.filter(function (m) { return m.price > 0 && (m.cost / m.price) * 100 > a.targetPct + 5; });
+    if (!over.length) {
+      return T("Your prices look good. All of your breads are close to or below your goal of spending " + a.targetPct + "% of the selling price on ingredients.",
+        "Maayos ang presyo mo. Lahat ng tinapay mo ay malapit o mas mababa sa target mong " + a.targetPct + "% ng presyo para sa sangkap.");
+    }
+    return T("Your goal is to spend no more than " + a.targetPct + "% of the selling price on ingredients. These breads are above that goal:\n",
+        "Target mong hindi lalampas sa " + a.targetPct + "% ng presyo ang gastos sa sangkap. Lampas dito ang mga tinapay na ito:\n") +
+      chatBullets(over.slice(0, 3).map(function (m) { return m.name + T(": ingredients take ", ": ang sangkap ay ") + chatPct((m.cost / m.price) * 100) + T(" of the price", " ng presyo"); })) +
+      T("\nRaise their prices a little, or lower the cost of their ingredients.", "\nItaas nang kaunti ang presyo nila, o bawasan ang gastos sa sangkap.");
   }
 
   function recNotPerforming(a) {
     var msgs = [];
-    if (a.unsold.length) msgs.push(a.unsold.slice(0, 3).map(function (r) { return r.name; }).join(", ") + " " + (a.unsold.length === 1 ? "hasn't" : "haven't") + " sold at all yet");
+    if (a.unsold.length) msgs.push(notSoldText(a.unsold, 3));
     if (a.isPrivileged && a.margins.length) {
-      var low = a.margins.filter(function (m) { return m.margin < 30; });
-      if (low.length) msgs.push(low.slice(0, 2).map(function (m) { return m.name; }).join(", ") + " " + (low.length === 1 ? "is" : "are") + " selling but at a thin margin (under 30%)");
+      var low = a.margins.filter(function (m) { return r2(m.margin) < 30 && a.unsold.every(function (u) { return u.name !== m.name; }); });
+      if (low.length) msgs.push(T(chatNames(low, 2) + " " + (low.length === 1 ? "is" : "are") + " selling, but you keep less than 30% of the price.",
+        "Nabebenta ang " + chatNames(low, 2) + ", pero wala pang 30% ng presyo ang naiuuwi mo."));
     }
-    if (!msgs.length) return "Nothing stands out as underperforming right now \u2014 every recipe has sold, and margins look reasonable.";
-    return msgs.join(", and ") + ". " + (a.isPrivileged ? "Worth a promo push, a smaller test batch, or a price/recipe review." : "");
+    if (!msgs.length) return a.isPrivileged
+      ? T("Everything looks fine. Every bread has sold, and the profit looks healthy.", "Maayos ang lahat. Nabenta na ang bawat tinapay at malusog ang tubo.")
+      : T("Everything looks fine. Every bread has sold at least once.", "Maayos ang lahat. Nabenta na kahit isang beses ang bawat tinapay.");
+    return msgs.join(" ") + (a.isPrivileged ? T("\nYou could promote them, bake a smaller batch, or check their prices.", "\nPuwede mo silang i-promote, magluto ng mas kaunti, o tingnan ang presyo nila.") : "");
   }
 
   function recRemoveProducts(a) {
     if (!a.isPrivileged) return null;
-    var candidates = a.margins.filter(function (m) {
-      var unsoldMatch = a.unsold.some(function (u) { return u.name === m.name; });
-      return m.margin < 25 || unsoldMatch;
-    });
-    if (!candidates.length) return "Nothing looks like a clear candidate to drop \u2014 everything is either selling or holding a reasonable margin.";
-    return candidates.slice(0, 3).map(function (m) { return m.name; }).join(", ") + " " + (candidates.length === 1 ? "stands out" : "stand out") + " as worth reconsidering \u2014 low margin and/or no sales yet. Before cutting them, try a price adjustment or a smaller batch size first.";
+    var smallProfit = a.margins.filter(function (m) { return r2(m.margin) < 25; });
+    var notSold = a.unsold;
+    if (!smallProfit.length && !notSold.length) return T("I don't see any bread you should stop making. Every bread is either selling well or earning a good profit.",
+      "Wala akong nakikitang tinapay na dapat mong itigil. Lahat ay mabenta o malaki ang tubo.");
+    var lines = [];
+    if (smallProfit.length) lines.push(T(chatNames(smallProfit, 3) + " " + (smallProfit.length === 1 ? "gives" : "give") + " you a very small profit (you keep less than 25% of the price).",
+      "Napakaliit ng tubo sa " + chatNames(smallProfit, 3) + " (wala pang 25% ng presyo ang naiuuwi mo)."));
+    if (notSold.length) lines.push(notSoldText(notSold, 3));
+    return T("These breads are worth a second look:\n", "Dapat pag-isipan ulit ang mga tinapay na ito:\n") + chatBullets(lines) +
+      T("\nBefore you stop making any of them, try changing the price or baking fewer.", "\nBago mo sila itigil, subukan munang baguhin ang presyo o magluto ng mas kaunti.");
   }
 
   function recPrioritize(a) {
-    var parts = [];
-    if (a.topSellerByQty) parts.push(a.topSellerByQty.name + " is your top seller by volume (" + a.topSellerByQty.qty + " pcs)");
-    if (a.isPrivileged && a.margins.length) parts.push(a.margins[0].name + " has your best margin (" + r2(a.margins[0].margin) + "%)");
-    if (!parts.length) return "Not enough sales data yet to prioritize by \u2014 record a few sales first.";
-    return "I'd prioritize based on: " + parts.join(", and ") + ". " + (a.topSellerByQty && a.isPrivileged && a.margins.length && a.topSellerByQty.name !== a.margins[0].name ? "If those are two different items, that's worth noting \u2014 your most popular item isn't your most profitable one." : "");
+    var lines = [];
+    if (a.topSellerByQty) lines.push(T("Your top seller is " + a.topSellerByQty.name + " (" + chatPieces(a.topSellerByQty.qty) + " sold).",
+      "Pinakamabenta mo ang " + a.topSellerByQty.name + " (" + chatPieces(a.topSellerByQty.qty) + " ang nabenta)."));
+    if (a.isPrivileged && a.margins.length) lines.push(T("The bread with the best profit is " + a.margins[0].name + " (" + keepText(a.margins[0].margin) + ").",
+      "Ang tinapay na pinakamalaki ang tubo ay " + a.margins[0].name + " (" + keepText(a.margins[0].margin) + ")."));
+    if (!lines.length) return T("I need some sales data before I can suggest what to focus on. Please record a few sales first.",
+      "Kailangan ko muna ng datos ng benta bago ako makapagmungkahi. Mag-record muna ng ilang benta.");
+    var note = (a.topSellerByQty && a.isPrivileged && a.margins.length && a.topSellerByQty.name !== a.margins[0].name)
+      ? T("\nYour most popular bread isn't the one with the best profit, so try promoting " + a.margins[0].name + " more.",
+          "\nHindi ang pinakamabenta mo ang pinakamalaki ang tubo, kaya subukang i-promote pa ang " + a.margins[0].name + ".")
+      : "";
+    return T("Here is what I would focus on:\n", "Ito ang uunahin ko:\n") + chatBullets(lines) + note;
+  }
+
+  /* ---- Greetings, quick summary and the topic menu (like a bank's chat assistant) ---- */
+  var chatIntroduced = false; // the full introduction is only given the first time
+  function chatGreetingLines(q, a) {
+    var name = currentUserName();
+    var h = new Date().getHours();
+    var tod = h < 12 ? "morning" : (h < 18 ? "afternoon" : "evening");
+    var said = /good\s*(morning|afternoon|evening)/i.exec(q || "");
+    var tagalog = /magandang\s*(umaga|hapon|gabi)/i.exec(q || "");
+    if (said) tod = said[1].toLowerCase();
+    if (tagalog) tod = { umaga: "morning", hapon: "afternoon", gabi: "evening" }[tagalog[1].toLowerCase()];
+    var hello = chatLang === "tl"
+      ? ((said || tagalog) ? "Magandang " + { morning: "umaga", afternoon: "hapon", evening: "gabi" }[tod] + ", " + name + "!" : "Kumusta, " + name + "!")
+      : ((said || tagalog) ? "Good " + tod + ", " + name + "!" : "Hello, " + name + "!");
+    var wish = chatLang === "tl"
+      ? (tod === "morning" ? "Sana maganda ang simula ng araw mo." : (tod === "afternoon" ? "Sana maayos ang araw mo." : "Sana maganda ang gabi mo."))
+      : (tod === "morning" ? "I hope you have a great day ahead." : (tod === "afternoon" ? "I hope your day is going well." : "I hope you're having a nice evening."));
+    var what = chatLang === "tl"
+      ? (a.isPrivileged ? "stock, pinakamabenta, presyo, at tubo" : "stock at pinakamabentang tinapay")
+      : (a.isPrivileged ? "stock, best sellers, prices, and profit" : "stock levels and best sellers");
+    var lines;
+    if (chatIntroduced) {
+      lines = [hello + " " + wish];
+    } else {
+      chatIntroduced = true;
+      lines = [hello + " " + wish + T(" I'm your Bakery Assistant, and I can check your " + what + " using your latest data.",
+        " Ako ang iyong Bakery Assistant, at matitingnan ko ang iyong " + what + " gamit ang pinakabagong datos.")];
+      if (!a.hasAnyRecipes && !a.hasAnySales) lines.push(T("Once you add your recipes and record some sales, I'll be able to tell you much more about your bakery.",
+        "Kapag nakapagdagdag ka na ng recipe at nakapag-record ng benta, mas marami na akong masasabi tungkol sa bakery mo."));
+    }
+    lines.push(T("How can I help you today? Just type your question, or choose a topic from the menu below.",
+      "Ano ang maitutulong ko sa iyo ngayon? I-type lang ang tanong mo, o pumili ng paksa sa menu sa ibaba."));
+    return lines;
+  }
+
+  function chatSummary(a) {
+    if (!a.hasAnyRecipes && !a.hasAnySales) return T("You don't have any recipes or sales yet. Once you add some, I'll be able to tell you how your bakery is doing.",
+      "Wala ka pang recipe o benta. Kapag nagdagdag ka na, masasabi ko na kung kumusta ang bakery mo.");
+    var facts = [];
+    if (a.isPrivileged && a.margins.length) facts.push(T("The bread with the best profit is " + a.margins[0].name + " (" + keepText(a.margins[0].margin) + ").",
+      "Ang tinapay na pinakamalaki ang tubo ay " + a.margins[0].name + " (" + keepText(a.margins[0].margin) + ")."));
+    if (a.topSellerByQty) facts.push(T("Your best seller is " + a.topSellerByQty.name + " (" + chatPieces(a.topSellerByQty.qty) + " sold).",
+      "Pinakamabenta mo ang " + a.topSellerByQty.name + " (" + chatPieces(a.topSellerByQty.qty) + " ang nabenta)."));
+    facts.push(a.lowStock.length
+      ? T("You're running low on " + chatList(a.lowStock.map(function (i) { return i.name; })) + ".", "Paubos na ang " + chatList(a.lowStock.map(function (i) { return i.name; })) + ".")
+      : T("Nothing is running low in stock.", "Walang paubos na stock."));
+    if (a.unsold.length) facts.push(notSoldText(a.unsold, 3));
+    return T("Here is a quick look at your bakery:\n", "Narito ang mabilis na tingin sa bakery mo:\n") + chatBullets(facts);
+  }
+
+  function recPricesProfit(a) {
+    if (!a.margins.length) return T("I can't check prices and profit yet because none of your recipes has both a cost and a selling price.",
+      "Hindi ko pa matitingnan ang presyo at tubo dahil walang recipe na may gastos at presyo.");
+    var best = a.margins[0], worst = a.margins[a.margins.length - 1];
+    var over = a.margins.filter(function (m) { return m.price > 0 && (m.cost / m.price) * 100 > a.targetPct + 5; });
+    var lines = [T("Best profit: " + best.name + " (" + keepText(best.margin) + ").", "Pinakamalaking tubo: " + best.name + " (" + keepText(best.margin) + ").")];
+    if (worst.name !== best.name) lines.push(T("Smallest profit: " + worst.name + " (" + keepOnlyText(worst.margin) + ").", "Pinakamaliit na tubo: " + worst.name + " (" + keepOnlyText(worst.margin) + ")."));
+    lines.push(over.length
+      ? T("Prices: " + chatNames(over, 3) + " " + (over.length === 1 ? "costs" : "cost") + " too much to make compared with " + (over.length === 1 ? "its" : "their") + " selling price.",
+          "Presyo: masyadong mataas ang gastos sa paggawa ng " + chatNames(over, 3) + " kumpara sa presyo nito.")
+      : T("Prices: they look good. Ingredients take no more than " + a.targetPct + "% of the selling price, which is your goal.",
+          "Presyo: maayos ang mga ito. Hindi lalampas sa " + a.targetPct + "% ng presyo ang sangkap, ayon sa target mo."));
+    return T("Here is how your prices and profit look:\n", "Ganito ang lagay ng presyo at tubo mo:\n") + chatBullets(lines) +
+      T("\nAsk me \"How are my prices?\" if you want the details.", "\nTanungin mo ako ng \"Kumusta ang presyo ko?\" para sa detalye.");
+  }
+
+  // The topic menu shown under the greeting and after each answer. `ask` is what the assistant understands.
+  function chatMenuItems(a) {
+    var items = [
+      { label: T("Quick look at my bakery", "Kumusta ang bakery ko?"), ask: "quick look" },
+      { label: T("Check stock levels", "Tingnan ang stock"), ask: "low stock" },
+      { label: T("See my best seller", "Ano ang pinakamabenta ko?"), ask: "best seller" },
+      { label: T("Find unsold bread", "Mga tinapay na walang benta"), ask: "unsold bread" }
+    ];
+    if (a.isPrivileged) {
+      items.push({ label: T("Prices and profit", "Presyo at tubo"), ask: "prices and profit" });
+      items.push({ label: T("Ways to earn more profit", "Paano kumita nang mas malaki?"), ask: "how can i make more profit" });
+    }
+    return items;
+  }
+
+  /* ---- Specific questions: "How many Spanish Bread did we sell?", "How much flour is left?" ---- */
+  var GENERIC_NAME_WORDS = /^(bread|breads|tinapay|and|the|with|ng|sa|ang|mga)$/i;
+  function findNamed(q, list) {
+    var lower = q.toLowerCase();
+    var exact = list.filter(function (x) { return x && x.name && lower.indexOf(String(x.name).toLowerCase()) !== -1; });
+    if (exact.length) {                       // the longest name wins, so "Pande Hopia" beats "Hopia"
+      var longest = Math.max.apply(null, exact.map(function (x) { return String(x.name).length; }));
+      return exact.filter(function (x) { return String(x.name).length === longest; });
+    }
+    var tokens = lower.split(/[^a-z0-9ñ]+/).filter(Boolean);
+    return list.filter(function (x) {
+      return x && x.name && String(x.name).toLowerCase().split(/[^a-z0-9ñ]+/).some(function (w) {
+        return w.length >= 4 && !GENERIC_NAME_WORDS.test(w) && tokens.indexOf(w) !== -1;
+      });
+    });
+  }
+
+  function answerAboutBread(bread, q, a) {
+    var name = bread.name;
+    var qty = a.qtyByRecipe[name] || 0;
+    var m = a.margins.filter(function (x) { return x.name === name; })[0];
+    var soldLine = qty
+      ? T(name + ": " + chatPieces(qty) + " sold" + (a.isPrivileged && a.revenueByRecipe[name] ? ", which brought in " + peso(a.revenueByRecipe[name]) : "") + ".",
+          name + ": " + chatPieces(qty) + " ang nabenta" + (a.isPrivileged && a.revenueByRecipe[name] ? ", na kumita ng " + peso(a.revenueByRecipe[name]) : "") + ".")
+      : T(name + " hasn't been sold yet.", "Hindi pa nabebenta ang " + name + ".");
+    var wantsProfit = /profit|margin|tubo|kita|kumita|earn/i.test(q);
+    var wantsCost = /cost|gastos|puhunan|capital|to make|gawin/i.test(q);
+    var wantsPrice = /price|presyo|magkano|how much|sells? for|selling for/i.test(q);
+    var wantsSold = /sold|sell|selling|benta|nabenta|how many|ilan|bumili/i.test(q);
+
+    if (wantsProfit || wantsCost || wantsPrice) {
+      if (!a.isPrivileged) return restrictedReply();
+      if (!m) return T(name + " doesn't have a selling price yet, so I can't check that.", "Wala pang presyo ang " + name + ", kaya hindi ko ito matitingnan.");
+      if (wantsProfit) return T(name + " costs " + peso(m.cost) + " to make and sells for " + peso(m.price) + ", so you keep " + peso(m.price - m.cost) + " per piece (" + chatPct(m.margin) + " of its price).",
+        "Ang " + name + " ay " + peso(m.cost) + " ang gastos at " + peso(m.price) + " ang benta, kaya " + peso(m.price - m.cost) + " ang naiuuwi mo sa bawat piraso (" + chatPct(m.margin) + " ng presyo).");
+      if (wantsCost) return T("It costs " + peso(m.cost) + " to make one piece of " + name + ".", "Nagkakahalaga ng " + peso(m.cost) + " ang paggawa ng isang piraso ng " + name + ".");
+      return T(name + " sells for " + peso(m.price) + " per piece.", "Ang " + name + " ay " + peso(m.price) + " kada piraso.");
+    }
+    if (wantsSold) return soldLine;
+    var lines = [soldLine];
+    if (a.isPrivileged && m) lines.push(T("It sells for " + peso(m.price) + " and you keep " + peso(m.price - m.cost) + " per piece (" + chatPct(m.margin) + ").",
+      peso(m.price) + " ang presyo at " + peso(m.price - m.cost) + " ang naiuuwi mo kada piraso (" + chatPct(m.margin) + ")."));
+    return lines.join("\n");
+  }
+
+  function answerAboutIngredient(ing, q, a) {
+    var name = ing.name;
+    var low = a.lowStock.filter(function (x) { return x.name === name; })[0];
+    var wantsCost = /price|presyo|magkano|how much (is|does|for)|cost|gastos|mahal|mura/i.test(q) && !/stock|left|natitira|remaining|ilan/i.test(q);
+    if (wantsCost) {
+      if (!a.isPrivileged) return restrictedReply();
+      var cost = Number(ing.cost_per_unit);
+      if (!cost && cost !== 0) return T("I don't have a price for " + name + " yet.", "Wala pa akong presyo para sa " + name + ".");
+      var line = T(name + " costs " + peso(cost) + " per " + (ing.unit || "unit") + ".", "Ang " + name + " ay " + peso(cost) + " kada " + (ing.unit || "unit") + ".");
+      var hi = a.highCostIngredients.filter(function (x) { return x.name === name; })[0];
+      if (hi) line += T(" That is up by " + chatPct(hi.delta) + " since you first added it.", " Tumaas ito ng " + chatPct(hi.delta) + " mula nang unang ilagay.");
+      return line;
+    }
+    var stock = ing.stock_qty != null ? ing.stock_qty : (low ? low.stock_qty : null);
+    var unit = ing.unit || (low ? low.unit : "");
+    if (stock == null) return low ? T(name + " is running low.", "Paubos na ang " + name + ".") : T("I can't see the stock level of " + name + " right now, but it's not on your low-stock list.",
+      "Hindi ko makita ang stock ng " + name + " ngayon, pero wala ito sa listahan ng paubos na.");
+    return T(name + ": " + chatQty(stock, unit) + " left." + (low ? " That's running low, so it's a good time to restock." : ""),
+      name + ": " + chatQty(stock, unit) + " ang natitira." + (low ? " Paubos na ito, kaya magandang mag-restock na." : ""));
+  }
+
+  function answerSpecific(a, q) {
+    var breads = findNamed(q, (a.recipeNames || []).map(function (n) { return { name: n }; }));
+    var ings = findNamed(q, a.ingredients || []);
+    if (!breads.length && !ings.length) return null;
+    var stockQ = /stock|left|natitira|remaining|kulang|ubos|maubos|ilan (pa|na)/i.test(q);
+    var breadQ = /sold|sell|selling|benta|nabenta|price|presyo|magkano|profit|margin|tubo|kita|kumita|how many/i.test(q);
+    var useIngredient = ings.length && (!breads.length || (stockQ && !breadQ));
+    var list = useIngredient ? ings : breads;
+    if (list.length > 1) {
+      return { lines: [T("Which one do you mean: " + chatList(list.slice(0, 4).map(function (x) { return x.name; }).concat(list.length > 4 ? ["others"] : [])) + "?",
+        "Alin ang tinutukoy mo: " + chatList(list.slice(0, 4).map(function (x) { return x.name; }).concat(list.length > 4 ? ["iba pa"] : [])) + "?")], menu: false };
+    }
+    var reply = useIngredient ? answerAboutIngredient(list[0], q, a) : answerAboutBread(list[0], q, a);
+    return reply;
   }
 
   var INTENTS = [
-    { pattern: /low.?stock|restock|running out/i, restricted: false, handler: function (a) {
-      return a.lowStock.length
-        ? "These are running low: " + a.lowStock.map(function (i) { return i.name + " (" + i.stock_qty + " " + i.unit + " left)"; }).join(", ") + "."
-        : "Nothing's below its low-stock threshold right now \u2014 you're good.";
+    { pattern: /^(?!.*(profit|money|earn|price|pricing|cost|tubo|kita|presyo|gastos))(?=.*(\bbake\b|\bbaking\b|\brecipes? (for|of)\b|\bhow (do i|do you|to|can i) (make|cook|prepare)\b|\bingredients? (of|for|in)\b|\bprocedure\b|\bpaano (ako )?(mag-?bake|magluto|gumawa)\b|\bpano (mag-?bake|magluto|gumawa)\b|\bresipe\b|\bsangkap ng\b))/i, restricted: false, handler: function (a, q) {
+      var found = findNamed(q, (a.recipeNames || []).map(function (n) { return { name: n }; }));
+      if (found.length) {
+        return { lines: [T(found[0].name + " is in your recipes. I can't give baking instructions, but you can open the Recipes page and select " + found[0].name + " to see its ingredients.",
+          "Nasa recipes mo ang " + found[0].name + ". Hindi ako nagbibigay ng paraan ng pagluluto, pero puwede mong buksan ang Recipes page at piliin ang " + found[0].name + " para makita ang mga sangkap."),
+          T("I can still help with your stock, sales, prices, and profit.", "Matutulungan pa rin kita sa stock, benta, presyo, at tubo.")], menu: true };
+      }
+      return { lines: [T("I'm not able to give baking instructions, and I couldn't find that bread in your recipes. Your saved recipes are on the Recipes page.",
+        "Hindi ako nagbibigay ng paraan ng pagluluto, at hindi ko makita ang tinapay na iyon sa mga recipe mo. Nasa Recipes page ang mga naka-save mong recipe."),
+        T("I can help with your stock, sales, prices, and profit.", "Matutulungan kita sa stock, benta, presyo, at tubo.")], menu: true };
     }},
-    { pattern: /best.?sell|top.?sell|most popular|most sold/i, restricted: false, handler: function (a) {
-      if (!a.topSellerByQty) return "No sales recorded yet, so nothing to rank.";
-      var extra = a.isPrivileged && a.revenueByRecipe[a.topSellerByQty.name] ? " (\u20B1" + r2(a.revenueByRecipe[a.topSellerByQty.name]) + " in revenue)" : "";
-      return a.topSellerByQty.name + " is your best seller so far, with " + a.topSellerByQty.qty + " pcs sold" + extra + ".";
+    { pattern: /./, restricted: false, handler: function (a, q) { return answerSpecific(a, q); } },
+
+    { pattern: /low.?stock|re.?stock|running (out|low)|out of stock|need to (buy|order)|kulang|ubos|maubos|paubos|malapit nang maubos|bilhin|mag-?restock|natitira|\bstock/i, restricted: false, handler: function (a) {
+      if (!a.lowStock.length) return T("Good news! Nothing is running low right now.", "Magandang balita! Walang paubos na stock ngayon.");
+      return T(a.lowStock.length === 1 ? "This ingredient is running low:\n" : "These ingredients are running low:\n", a.lowStock.length === 1 ? "Paubos na ang sangkap na ito:\n" : "Paubos na ang mga sangkap na ito:\n") +
+        chatBullets(a.lowStock.map(function (i) { return i.name + ": " + chatQty(i.stock_qty, i.unit) + T(" left", " ang natitira"); })) +
+        T("\nIt's a good time to restock.", "\nMagandang oras na para mag-restock.");
     }},
-    { pattern: /unsold|no sales|haven'?t sold/i, restricted: false, handler: function (a) {
-      return a.unsold.length
-        ? a.unsold.map(function (r) { return r.name; }).join(", ") + " " + (a.unsold.length === 1 ? "hasn't" : "haven't") + " sold at all yet."
-        : "Every recipe has sold at least once \u2014 nice.";
+    { pattern: /best.?sell|top.?sell|most popular|most sold|sells? the most|selling the most|pinakamabenta|pinaka-?mabenta|pinakamarami.*(nabenta|bumibili)|pinakamabili|pinaka-?patok|\bpatok\b|mabenta/i, restricted: false, handler: function (a) {
+      if (!a.topSellerByQty) return T("You haven't recorded any sales yet, so I can't tell which bread sells best.", "Wala ka pang naka-record na benta, kaya hindi ko pa masasabi kung aling tinapay ang pinakamabenta.");
+      var rev = a.isPrivileged && a.revenueByRecipe[a.topSellerByQty.name] ? a.revenueByRecipe[a.topSellerByQty.name] : 0;
+      return T(a.topSellerByQty.name + " is your best seller. You've sold " + chatPieces(a.topSellerByQty.qty) + (rev ? ", which brought in " + peso(rev) : "") + ".",
+        "Pinakamabenta mo ang " + a.topSellerByQty.name + ". " + chatPieces(a.topSellerByQty.qty) + " na ang nabenta" + (rev ? ", na kumita ng " + peso(rev) : "") + ".");
     }},
-    { pattern: /^(hi|hello|hey)\b/i, restricted: false, handler: function (a) {
+    { pattern: /unsold|no sales|(hasn'?t|haven'?t|not|never) (been )?(sold|selling)|not selling|walang benta|hindi (pa )?(nabenta|nabebenta|mabenta|nabibili)|di (pa )?(nabenta|nabebenta|mabenta)|walang (bumibili|bumili)|hindi (pa )?binebenta/i, restricted: false, handler: function (a) {
+      if (!a.unsold.length) return T("Every bread has been sold at least once. Great job!", "Nabenta na kahit isang beses ang bawat tinapay. Magaling!");
+      return notSoldText(a.unsold, 5);
+    }},
+    { pattern: /^(menu|options|topics|main menu|show menu|mga paksa|ipakita ang menu)\??$/i, restricted: false, handler: function () {
+      return { lines: [T("Sure! Here are the topics I can help you with:", "Sige! Narito ang mga paksang maitutulong ko:")], menu: true };
+    }},
+    { pattern: /^(good\s*(morning|afternoon|evening|day)|hi+|hello+|hey+|kumusta|kamusta|musta|magandang\s*(umaga|hapon|gabi|araw))[\s,.!?]*(po|sir|ma'?am|there|bakery|assistant|bot)?[\s,.!?]*$/i, restricted: false, handler: function (a, q) {
+      return { lines: chatGreetingLines(q, a), menu: true };
+    }},
+    { pattern: /^(good\s*night|goodnight|gabi na)\b/i, restricted: false, handler: function () {
+      return { lines: [T("Good night, " + currentUserName() + "! Rest well. I'll be here whenever you need me.", "Magandang gabi, " + currentUserName() + "! Magpahinga ka na. Nandito lang ako kapag kailangan mo ako.")], menu: false };
+    }},
+    { pattern: /\b(bye|goodbye|see you|babay|paalam)\b/i, restricted: false, handler: function () {
+      return { lines: [T("Goodbye, " + currentUserName() + "! Have a great day.", "Paalam, " + currentUserName() + "! Magandang araw sa iyo.")], menu: false };
+    }},
+    { pattern: /^(no|nope|nah|none|nothing|nothing else|no thanks?|no thank you|that'?s (all|it)|wala|wala na|wala po|wala na po|ok(ay)? na|okay lang|i'?m (good|fine|okay)|hindi na|di na)[\s,.!]*(po|thanks|thank you|for now|muna)?[\s.!]*$/i, restricted: false, handler: function () {
+      return { lines: [T("Okay then! If you need help, just ask me or tap a topic below.", "Sige po! Kung kailangan mo ng tulong, magtanong lang sa akin o pumili ng paksa sa ibaba.")], menu: true };
+    }},
+    { pattern: /thank|salamat|thx/i, restricted: false, handler: function () {
+      return { lines: [T("You're welcome! Is there anything else I can help you with?", "Walang anuman! May iba pa ba akong maitutulong sa iyo?")], menu: true };
+    }},
+    { pattern: /how are you|how's it going|kumusta ka|kamusta ka|musta ka/i, restricted: false, handler: function () {
+      return { lines: [T("I'm doing well, thank you! How can I help you with your bakery today?", "Mabuti naman ako, salamat! Ano ang maitutulong ko sa bakery mo ngayon?")], menu: true };
+    }},
+    { pattern: /^(ok|okay|okey|sige|cool|nice|great|sige po|oo|opo|ge|ok po|okay po|sige lang|o sige)[\s.!]*$/i, restricted: false, handler: function () {
+      return { lines: [T("Great! Is there anything else I can help you with?", "Sige! May iba pa ba akong maitutulong sa iyo?")], menu: true };
+    }},
+    { pattern: /quick look|summary|overview|how('?s| is) my (bakery|business)|update me|what'?s new|k[au]musta( na)?( ang)? (bakery|negosyo|tindahan)|buod|balita sa (bakery|negosyo)/i, restricted: false, handler: function (a) { return chatSummary(a); } },
+    { pattern: /help|what can you|what do you do|what can i ask|tulong|ano (ang )?(kaya|magagawa|puwede|pwede) (mo|kong|kong itanong|itanong)|ano ang puwedeng itanong|ano ang pwedeng itanong/i, restricted: false, handler: function (a) {
       return a.isPrivileged
-        ? "Hey! I can help with stock, sales, pricing, margins, or recommendations \u2014 what do you want to check?"
-        : "Hey! I can help with stock levels and best sellers \u2014 what do you want to check?";
-    }},
-    { pattern: /help|what can you|what do you do/i, restricted: false, handler: function (a) {
-      return a.isPrivileged
-        ? "Ask me things like \"how's my pricing?\", \"what's our best margin?\", \"which ingredients cost the most?\", or \"what do you suggest to increase profit?\" \u2014 I pull straight from your live recipes, ingredients, and sales."
-        : "Ask me about stock levels, low-stock alerts, or best sellers. Pricing and profit details are limited to Admin and Super Admin accounts.";
+        ? T("You can ask me things like:\n", "Puwede mo akong tanungin ng tulad ng:\n") + chatBullets(chatLang === "tl"
+            ? ["Aling tinapay ang pinakamalaki ang tubo?", "Aling tinapay ang pinakamaliit ang tubo?", "Aling sangkap ang pinakamahal?", "Kumusta ang presyo ko?", "Paano ako kikita nang mas malaki?", "Ilan ang nabenta na Spanish Bread?"]
+            : ["Which bread has the best profit?", "Which bread has the smallest profit?", "Which ingredients cost the most?", "How are my prices?", "How can I earn more profit?", "How many Spanish Bread did we sell?"]) +
+          T("\nI use your latest recipes, ingredients, and sales to answer.", "\nGinagamit ko ang pinakabago mong recipe, sangkap, at benta para sumagot.")
+        : T("You can ask me about low stock, your best seller, or breads that haven't sold yet. Only Admin and Super Admin accounts can see prices and profit.",
+            "Puwede mo akong tanungin tungkol sa paubos na stock, pinakamabentang tinapay, o mga tinapay na hindi pa nabebenta. Admin at Super Admin lang ang makakakita ng presyo at tubo.");
     }},
 
-    { pattern: /increase.*profit|higher profit|profit higher|improve.*profit|profitability|recommend.*(improv|business)/i, restricted: true, handler: recIncreaseProfit },
-    { pattern: /best.*margin|highest.*margin/i, restricted: true, handler: recBestMargin },
-    { pattern: /worst.*margin|lowest.*margin|low.*margin/i, restricted: true, handler: recWorstMargin },
-    { pattern: /reduce.*cost|lower.*cost|cutting.*cost|costing.*(most|much)|expensive ingredient/i, restricted: true, handler: recReduceCosts },
-    { pattern: /improve.*pricing|pricing.*improve|how.*price/i, restricted: true, handler: recImprovePricing },
-    { pattern: /not performing|underperform|performing well/i, restricted: true, handler: recNotPerforming },
-    { pattern: /remov\w*|discontinue|drop.*product|chang(e|ing).*product/i, restricted: true, handler: recRemoveProducts },
-    { pattern: /prioritize|focus on selling|promote more|should we (focus|sell)/i, restricted: true, handler: recPrioritize },
+    { pattern: /prices? (and|&) profit|profit (and|&) prices?|presyo at tubo|tubo at presyo/i, restricted: true, handler: recPricesProfit },
+    { pattern: /increase.*profit|more profit|higher profit|profit higher|improve.*profit|make.*money|earn more|profitab|recommend.*(improv|business)|(paano|pano).*(kumita|kikita|kumikita|lumaki ang (tubo|kita))|dagdagan.*(tubo|kita)|palakihin.*(tubo|kita)|mas malaking (tubo|kita)|kumita nang mas malaki|kikita nang mas malaki|lumaki ang (tubo|kita)/i, restricted: true, handler: recIncreaseProfit },
+    { pattern: /best.*(margin|profit)|highest.*(margin|profit)|biggest.*(margin|profit)|earns? the most|most profit|pinakamalaki.*(tubo|kita)|pinakamalaking (tubo|kita)|pinaka-?(tubo|kumikita|profitable)|(tubo|kita).*pinakamalaki|pinakakumikita/i, restricted: true, handler: recBestMargin },
+    { pattern: /worst.*(margin|profit)|lowest.*(margin|profit)|smallest.*(margin|profit)|low.*margin|earns? the least|least profit|thinnest|pinakamaliit.*(tubo|kita)|pinakamababa.*(tubo|kita)|(tubo|kita).*pinakamaliit|maliit (ang|na) (tubo|kita)|kakaunting (tubo|kita)/i, restricted: true, handler: recWorstMargin },
+    { pattern: /reduce.*cost|lower.*cost|cut.*cost|costs? (us |me )?the most|costing.*(most|much)|expensive ingredient|most expensive|bawasan.*(gastos|sangkap)|pinakamahal.*(sangkap|ingredient)|mahal.*sangkap|sangkap.*(mahal|tumaas)|tumaas.*presyo/i, restricted: true, handler: recReduceCosts },
+    { pattern: /improve.*pricing|pricing.*improve|how.*(price|pricing)|how are my prices|check.*price|k[au]musta.*presyo|tama ba (ang )?presyo|presyo ko|ayos ba (ang )?presyo|magkano dapat|dapat bang (itaas|taasan)/i, restricted: true, handler: recImprovePricing },
+    { pattern: /not performing|underperform|performing well|weak (item|bread)|hindi (maganda|mabenta|kumikita)|mahinang (benta|tinapay)/i, restricted: true, handler: recNotPerforming },
+    { pattern: /remov\w*|discontinue|drop.*(product|bread)|stop (making|selling)|chang(e|ing).*product|itigil|tigilan|alisin|huwag nang gawin/i, restricted: true, handler: recRemoveProducts },
+    { pattern: /prioritiz|focus on|promote more|should we (focus|sell)|what should (i|we) (sell|bake|make)|unahin|ano (ang )?(dapat|uunahin|iprumote|i-?promote)|ano ang dapat (kong |nating )?(gawin|ibenta|iluto)/i, restricted: true, handler: recPrioritize },
     { pattern: /margin/i, restricted: true, handler: recBestMargin },
-    { pattern: /profit|price|pricing|cost|revenue|expensive/i, restricted: true, handler: function (a) { return recImprovePricing(a); } }
+    { pattern: /profit|price|pricing|cost|revenue|expensive|tubo|kita|presyo|gastos|puhunan|mahal/i, restricted: true, handler: function (a) { return recImprovePricing(a); } }
   ];
 
-  function classifyAndAnswer(userText, a) {
+  function classifyAndAnswer(userText, a, keepLang) {
     var q = userText.trim();
+    if (!keepLang) chatLang = detectChatLang(q);   // a menu tap keeps the language the user already used
     for (var i = 0; i < INTENTS.length; i++) {
       var intent = INTENTS[i];
       if (intent.pattern.test(q)) {
-        if (intent.restricted && !a.isPrivileged) return RESTRICTED_REPLY;
-        var result = intent.handler(a);
+        if (intent.restricted && !a.isPrivileged) return restrictedReply();
+        var result = intent.handler(a, q);
         if (result) return result;
       }
     }
-    return a.isPrivileged
-      ? "I'm focused on your bakery's own data \u2014 recipes, pricing, sales, and stock. Try asking about margins, best sellers, low stock, or how to improve profit."
-      : "I'm focused on your bakery's own data \u2014 stock levels and best sellers. Try asking about those.";
+    return { lines: [a.isPrivileged
+      ? T("Sorry, I didn't catch that. I can help with stock, sales, prices, and profit. Try asking, \"Which bread has the best profit?\" or \"Is anything low in stock?\"",
+          "Pasensya na, hindi ko naintindihan. Matutulungan kita sa stock, benta, presyo, at tubo. Subukang itanong, \"Aling tinapay ang pinakamalaki ang tubo?\" o \"May paubos na ba na stock?\"")
+      : T("Sorry, I didn't catch that. I can help with low stock, your best seller, and breads that haven't sold yet.",
+          "Pasensya na, hindi ko naintindihan. Matutulungan kita sa paubos na stock, pinakamabentang tinapay, at mga tinapay na hindi pa nabebenta."),
+      T("You can also choose a topic from the menu below.", "Puwede ka ring pumili ng paksa sa menu sa ibaba.")], menu: true };
   }
 
   function initAiChatWidget() {
@@ -1269,7 +1556,7 @@
       '<div class="ai-chat-messages" id="ai-chat-messages"></div>' +
       '<div class="ai-chat-quick-replies" id="ai-chat-quick-replies"></div>' +
       '<div class="ai-chat-input-row">' +
-        '<input type="text" id="ai-chat-input" placeholder="Ask about stock, sales, pricing\u2026" autocomplete="off">' +
+        '<input type="text" id="ai-chat-input" placeholder="Type your message\u2026" autocomplete="off">' +
         '<button type="button" id="ai-chat-send" aria-label="Send">' +
           '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 11l18-8-8 18-2.5-7.5L3 11Z" fill="currentColor"/></svg>' +
         '</button>' +
@@ -1282,12 +1569,25 @@
     var hasGreeted = false;
     var lastContext = null;
 
+    function nowTime() { return new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); }
+    function scrollDown() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+    quickRepliesEl.style.display = "none"; // the topic menu now appears inside the conversation
+
     function addMessage(text, who) {
       var msg = document.createElement("div");
       msg.className = "ai-chat-msg " + who;
       msg.textContent = text;
       messagesEl.appendChild(msg);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollDown();
+    }
+
+    // Small line under a message, e.g. "Sent . 8:48 PM" or "Bakery Assistant . 8:48 PM".
+    function addMeta(who) {
+      var meta = document.createElement("div");
+      meta.className = "ai-chat-meta " + who;
+      meta.textContent = (who === "user" ? "Sent" : "Bakery Assistant") + " \u2022 " + nowTime();
+      messagesEl.appendChild(meta);
+      scrollDown();
     }
 
     function showTyping() {
@@ -1296,7 +1596,7 @@
       typing.id = "ai-chat-typing-indicator";
       typing.innerHTML = "<span></span><span></span><span></span>";
       messagesEl.appendChild(typing);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollDown();
     }
 
     function hideTyping() {
@@ -1304,15 +1604,24 @@
       if (typing) typing.remove();
     }
 
-    function setQuickReplies(labels) {
-      quickRepliesEl.innerHTML = "";
-      labels.forEach(function (label) {
+    function removeMenus() {
+      messagesEl.querySelectorAll(".ai-chat-menu").forEach(function (m) { m.remove(); });
+    }
+
+    // The list of topics (only the newest one stays on screen).
+    function showMenu(a) {
+      removeMenus();
+      var menu = document.createElement("div");
+      menu.className = "ai-chat-menu";
+      chatMenuItems(a).forEach(function (item) {
         var btn = document.createElement("button");
         btn.type = "button";
-        btn.textContent = label;
-        btn.addEventListener("click", function () { handleUserMessage(label); });
-        quickRepliesEl.appendChild(btn);
+        btn.textContent = item.label;
+        btn.addEventListener("click", function () { handleUserMessage(item.label, item.ask); });
+        menu.appendChild(btn);
       });
+      messagesEl.appendChild(menu);
+      scrollDown();
     }
 
     async function getAnalysis() {
@@ -1322,23 +1631,43 @@
       return lastContext;
     }
 
-    async function botReply(userText) {
+    async function botReply(userText, keepLang) {
       showTyping();
-      var a = await getAnalysis();
-      var reply = classifyAndAnswer(userText, a);
-
+      var a;
+      try { a = await getAnalysis(); }
+      catch (err) {
+        hideTyping();
+        addMessage(T("Sorry, I couldn't load your latest data. Please check your connection and try again.", "Pasensya na, hindi ko nakuha ang pinakabagong datos. Pakisuri ang koneksyon mo at subukan ulit."), "bot");
+        addMeta("bot");
+        return;
+      }
+      var reply = classifyAndAnswer(userText, a, keepLang);
+      var lines, withMenu;
+      if (typeof reply === "string") {           // a normal answer: add "anything else?" and the menu
+        lines = [reply, T("Is there anything else I can help you with?", "May iba pa ba akong maitutulong sa iyo?")];
+        withMenu = true;
+      } else {
+        lines = reply.lines;
+        withMenu = !!reply.menu;
+      }
+      var pause = Math.min(1500, 400 + lines.join(" ").length * 5);
       setTimeout(function () {
         hideTyping();
-        addMessage(reply, "bot");
-      }, 450);
+        lines.forEach(function (line) { addMessage(line, "bot"); });
+        addMeta("bot");
+        if (withMenu) showMenu(a);
+      }, pause);
     }
 
-    function handleUserMessage(text) {
+    // `ask` lets a menu button show a friendly label while the assistant understands a simple question.
+    function handleUserMessage(text, ask) {
       text = (text || "").trim();
       if (!text) return;
+      removeMenus();
       addMessage(text, "user");
+      addMeta("user");
       inputEl.value = "";
-      botReply(text);
+      botReply(ask || text, !!ask);
     }
 
     document.getElementById("ai-chat-send").addEventListener("click", function () { handleUserMessage(inputEl.value); });
@@ -1352,25 +1681,21 @@
       if (!hasGreeted) {
         hasGreeted = true;
         showTyping();
-        var a = await getAnalysis();
+        var a;
+        try { a = await getAnalysis(); }
+        catch (err) {
+          hideTyping();
+          hasGreeted = false;
+          addMessage("Sorry, I couldn't load your latest data. Please close the chat and open it again.", "bot");
+          addMeta("bot");
+          return;
+        }
         setTimeout(function () {
           hideTyping();
-          var name = currentUserName();
-          var openingLine = a.isPrivileged
-            ? recIncreaseProfit(a)
-            : (a.lowStock.length
-                ? "These are running low: " + a.lowStock.map(function (i) { return i.name; }).join(", ") + "."
-                : (a.topSellerByQty ? a.topSellerByQty.name + " is your best seller so far, with " + a.topSellerByQty.qty + " pcs sold." : "Nothing urgent to flag right now."));
-
-          addMessage("Hi " + name + "! " + (a.isPrivileged ? "Here's a quick read on things:" : "Here's what I can tell you right now:"), "bot");
-          addMessage(openingLine, "bot");
-
-          if (a.isPrivileged) {
-            setQuickReplies(["Best margin?", "What's costing us the most?", "Any unsold items?", "How's my pricing?"]);
-          } else {
-            setQuickReplies(["Low stock?", "Best seller?", "Any unsold items?"]);
-          }
-        }, 500);
+          chatGreetingLines("", a).forEach(function (line) { addMessage(line, "bot"); });
+          addMeta("bot");
+          showMenu(a);
+        }, 600);
       }
     }
 
@@ -3520,7 +3845,7 @@
     var session = getSession();
     var now = new Date();
     var generatedAt = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) + ", " + now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-    var preparedBy = session ? session.firstName + " (" + session.role + ")" : "Unknown";
+    var preparedBy = session ? formalName(session) + " (" + session.role + ")" : "Unknown";
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
     var refNo = "DRR-SPR-" + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + "-" + pad(now.getHours()) + pad(now.getMinutes());
 
@@ -3695,7 +4020,7 @@
     y += lines.length * 15 + 18;
 
     y = sectionTitle("2.  Financial Summary", y);
-    var tiles = [["Total Sales", totalSales, C_SALES], ["Total Production Cost", totalCost, C_COST], ["Gross Profit", gross, GOOD], ["Net Profit", gross, GOOD]];
+    var tiles = [["Total Sales", totalSales, C_SALES], ["Total Production Cost", totalCost, C_COST], ["Gross Profit", gross, GOOD], ["Net Profit", gross, [224, 168, 0]]];
     var gap = 10, tw = (CW - gap * 3) / 4;
     tiles.forEach(function (t, i) {
       var tx = M + i * (tw + gap);

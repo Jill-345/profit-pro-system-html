@@ -712,7 +712,9 @@ button {
   padding: 9px 13px;
   border-radius: 16px;
   font-size: 0.85rem;
-  line-height: 1.4;
+  line-height: 1.5;
+  flex-shrink: 0;
+  white-space: pre-line; /* lets replies use short lines and bullet points */
 }
 
 .ai-chat-msg.bot {
@@ -2109,3 +2111,32 @@ html { scroll-behavior: auto; overflow-anchor: none; }
 .section-head .section-title { margin: 0; padding: 0; border: 0; }
 .section-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .section-filters .field-control { margin: 0; }
+
+/* Chat: topic menu under the greeting and small time stamps, like a bank's chat assistant */
+.ai-chat-menu {
+  flex-shrink: 0; /* keep the menu from being squashed to a thin line inside the scrolling chat */
+  align-self: flex-start;
+  width: 84%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-white);
+  border: 1px solid var(--color-wheat-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ai-chat-menu button {
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--color-wheat-line);
+  background: transparent;
+  color: var(--color-crust);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: center;
+  cursor: pointer;
+}
+.ai-chat-menu button:last-child { border-bottom: 0; }
+.ai-chat-menu button:hover, .ai-chat-menu button:focus-visible { background: var(--color-field); color: var(--color-cinnamon-dark); }
+.ai-chat-meta { flex-shrink: 0; font-size: 0.7rem; color: var(--color-mocha); margin-top: -6px; }
+.ai-chat-meta.bot { align-self: flex-start; padding-left: 4px; }
+.ai-chat-meta.user { align-self: flex-end; padding-right: 4px; }
