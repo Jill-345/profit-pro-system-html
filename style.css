@@ -2059,10 +2059,10 @@ html { scroll-behavior: auto; overflow-anchor: none; }
   position: relative;
   aspect-ratio: 4 / 5;
   border-radius: 0;
-  outline: 1px solid var(--color-bark);
-  outline-offset: 8px;
+  outline: 8px solid var(--color-crust); /* brown frame around the photo (replaces the thin line with cream gap) */
+  outline-offset: 0;
   overflow: hidden;
-  background: var(--color-field);
+  background: var(--color-crust);
 }
 .dash-photo .photo-stack img {
   position: absolute;
@@ -2079,6 +2079,28 @@ html { scroll-behavior: auto; overflow-anchor: none; }
   transition: opacity 0.9s ease;
 }
 .dash-photo .photo-stack img.is-active { opacity: 1; }
+/* Previous / next arrows on the left and right of the dashboard photo */
+.dash-photo .photo-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(43, 26, 20, 0.62);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.dash-photo .photo-arrow.prev { left: 10px; }
+.dash-photo .photo-arrow.next { right: 10px; }
+.dash-photo .photo-arrow:hover { background: rgba(43, 26, 20, 0.92); transform: translateY(-50%) scale(1.08); }
+.dash-photo .photo-arrow:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .dash-photo .photo-dots { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 24px; }
 .dash-photo .photo-dot {
   width: 14px;

@@ -668,12 +668,14 @@
   async function syncAllRecipeCosts() {
     try {
       var ingRes = await supabaseClient.from("ingredients").select("id, cost_per_unit");
-      var lineRes = await supabaseClient.from("recipe_ingredients").select("id, recipe_id, ingredient_id, quantity, line_cost");
+      var lineRows = await fetchAllPages(function () {
+        return supabaseClient.from("recipe_ingredients").select("id, recipe_id, ingredient_id, quantity, line_cost").order("id", { ascending: true });
+      });
       var recRes = await supabaseClient.from("recipes").select("id, base_batch_size, total_batch_cost, cost_per_piece");
       var cost = {};
       (ingRes.data || []).forEach(function (i) { cost[i.id] = Number(i.cost_per_unit) || 0; });
       var totals = {};
-      var lines = lineRes.data || [];
+      var lines = lineRows;
       for (var i = 0; i < lines.length; i++) {
         var l = lines[i];
         var expected = cost[l.ingredient_id] != null ? l.quantity * cost[l.ingredient_id] : l.line_cost;
@@ -774,11 +776,13 @@
   }
 
   async function fetchBreadInventory() {
-    var result = await supabaseClient
-      .from("bread_inventory")
-      .select("*, recipes(name, selling_price)")
-      .order("date_baked", { ascending: false });
-    return result.data || [];
+    return await fetchAllPages(function () {
+      return supabaseClient
+        .from("bread_inventory")
+        .select("*, recipes(name, selling_price)")
+        .order("date_baked", { ascending: false })
+        .order("id", { ascending: false });
+    });
   }
 
   async function insertBreadBatch(recipeId, qtyBaked, consumedIngredients, batchName) {
@@ -787,15 +791,21 @@
       quantity_baked: qtyBaked,
       quantity_sold: 0,
       batch: batchName || null,
-      date_baked: new Date().toISOString().slice(0, 10),
+      date_baked: ymd(new Date()),
       logged_by: currentUserId()
     }).select().single();
     if (batchResult.error) return batchResult;
 
     for (var i = 0; i < consumedIngredients.length; i++) {
       var c = consumedIngredients[i];
+      var newStock = c.newStockQty;
+      if (c.usedQty != null) {
+        var fresh = await supabaseClient.from("ingredients").select("stock_qty").eq("id", c.ingredientId).maybeSingle();
+        if (fresh.data && fresh.data.stock_qty != null) newStock = Number(fresh.data.stock_qty) - c.usedQty;
+      }
+      c.newStockQty = round4(Math.max(0, newStock));
       await supabaseClient.from("ingredients")
-        .update({ stock_qty: round4(Math.max(0, c.newStockQty)), updated_at: new Date().toISOString() })
+        .update({ stock_qty: c.newStockQty, updated_at: new Date().toISOString() })
         .eq("id", c.ingredientId);
     }
     return batchResult;
@@ -840,6 +850,19 @@
     var name = names[key] || "Today";
     var range = key === "all" ? "all recorded sales" : (key === "today" ? full(now) : short(start) + " \u2013 " + full(now));
     return { name: name, range: range, label: name + " (" + range + ")" };
+  }
+
+  // Supabase returns at most 1,000 rows per request, so totals must be read page by page or they come out too low.
+  async function fetchAllPages(makeQuery) {
+    var rows = [], from = 0, page = 1000;
+    for (var n = 0; n < 500; n++) {
+      var result = await makeQuery().range(from, from + page - 1);
+      if (result.error || !result.data) break;
+      rows = rows.concat(result.data);
+      if (result.data.length < page) break;
+      from += page;
+    }
+    return rows;
   }
 
   async function fetchSales(rangeKey) {
@@ -1775,8 +1798,9 @@
     var now = new Date();
     var currentYear = now.getFullYear();
     var startOfLastYear = new Date(currentYear - 1, 0, 1).toISOString();
-    var result = await supabaseClient.from("sales").select("total_amount, sale_datetime").gte("sale_datetime", startOfLastYear);
-    var rows = result.data || [];
+    var rows = await fetchAllPages(function () {
+      return supabaseClient.from("sales").select("total_amount, sale_datetime").gte("sale_datetime", startOfLastYear).order("id", { ascending: true });
+    });
 
     var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     var current = new Array(12).fill(0);
@@ -1850,8 +1874,9 @@
     var svg = document.getElementById("donut-svg");
     if (!svg) return;
 
-    var result = await supabaseClient.from("sales").select("total_amount, recipes(id, name)");
-    var rows = result.data || [];
+    var rows = await fetchAllPages(function () {
+      return supabaseClient.from("sales").select("total_amount, recipes(id, name)").order("id", { ascending: true });
+    });
 
     var totals = {};
     rows.forEach(function (r) {
@@ -1865,6 +1890,9 @@
       .sort(function (a, b) { return b.value - a.value; })
       .slice(0, 5)
       .map(function (d, i) { return { name: d.name, value: d.value, color: palette[i] || "#C1662F" }; });
+    var grandTotal = Object.keys(totals).reduce(function (sum, k) { return sum + totals[k]; }, 0);
+    var topTotal = breadData.reduce(function (sum, d) { return sum + d.value; }, 0);
+    if (grandTotal - topTotal > 0.005) breadData.push({ name: "Other breads", value: grandTotal - topTotal, color: "#B8AA92" });
 
     var legend = document.getElementById("donut-legend");
     svg.innerHTML = "";
@@ -1886,7 +1914,7 @@
     }
 
     breadData.forEach(function (d) {
-      var sweep = total > 0 ? (d.value / total) * 360 : 0;
+      var sweep = total > 0 ? Math.min(359.99, (d.value / total) * 360) : 0; // a full 360 degrees would draw nothing
       var endAngle = startAngle + sweep;
       var largeArc = sweep > 180 ? 1 : 0;
       var p1 = polarToXY(rOuter, startAngle);
@@ -2206,7 +2234,10 @@
       var baseBatch = parseFloat(baseBatchInput.value) || 0;
       if (!name) { toast("Enter a bread item name."); return; }
       if (!lineItems.length) { toast("Add at least one ingredient first."); return; }
-      if (!baseBatch || Math.floor(baseBatch) !== baseBatch) { toast("Enter the base batch size (yield) as a whole number of pieces."); return; }
+      if (!baseBatch || Math.floor(baseBatch) !== baseBatch || baseBatch < 1) { toast("Enter the base batch size (yield) as a whole number of pieces."); return; }
+      var typedPrice = parseFloat(sellingPriceInput.value), typedTarget = parseFloat(targetFoodCostInput.value);
+      if (sellingPriceInput.value !== "" && !(typedPrice > 0)) { toast("The selling price must be more than 0."); return; }
+      if (targetFoodCostInput.value !== "" && !(typedTarget > 0 && typedTarget <= 100)) { toast("The target food cost must be between 1% and 100%."); return; }
 
       var totals = recompute();
       var portions = parseFloat(portionsInput.value) || 1;
@@ -2491,8 +2522,8 @@
             }
             var conversion = packSize * packFactor;
 
-            if (!qty || qty <= 0 || isNaN(price) || price < 0) {
-              toast("Enter a quantity purchased and a total price paid.");
+            if (!qty || qty <= 0 || isNaN(price) || price <= 0) {
+              toast("Enter a quantity purchased and a total price paid (more than 0).");
               return;
             }
             if (!(conversion > 0)) {
@@ -2781,6 +2812,10 @@
         toast("Fill in ingredient name, quantity purchased, and total price paid.");
         return;
       }
+      // A price of 0 would make every recipe using this ingredient look free, so it is not allowed.
+      if (!(totalPrice > 0)) { toast("The total price paid must be more than 0."); return; }
+      if (isNaN(startStock) || startStock < 0) { toast("Starting stock can't be negative."); return; }
+      if (lowStockVal !== "" && !(parseFloat(lowStockVal) >= 0)) { toast("The low-stock threshold can't be negative."); return; }
       if (!category) { toast("Please choose a category."); return; }
       if (!(conversion > 0)) {
         toast("Enter how much each purchase unit contains (greater than 0).");
@@ -2938,7 +2973,7 @@
         var ing = ingredients.find(function (i) { return i.id === item.ingredientId; });
         var usedQty = usedAmount(item.qty * scale, item.unit);
         if (ing && Number(ing.stock_qty) + 1e-9 < usedQty) shortNames.push(item.name + " (need " + fmtQty(usedQty) + " " + item.unit + ", have " + fmtQty(ing.stock_qty) + ")");
-        return { ingredientId: item.ingredientId, newStockQty: ing ? ing.stock_qty - usedQty : 0 };
+        return { ingredientId: item.ingredientId, usedQty: usedQty, newStockQty: ing ? ing.stock_qty - usedQty : 0 };
       });
       if (shortNames.length && !confirm("Not enough stock for:\n- " + shortNames.join("\n- ") + "\n\nThese will be set to 0. Log the bread anyway?")) return;
 
@@ -3588,11 +3623,27 @@
         return;
       }
 
+      var appliedUpdates = [], updateFailed = false;
       for (var j = 0; j < batchUpdates.length; j++) {
-        await updateBreadBatchSold(batchUpdates[j].id, batchUpdates[j].newSold);
-        var localBatch = breadBatches.find(function (bb) { return bb.id === batchUpdates[j].id; });
-        if (localBatch) localBatch.quantity_sold = batchUpdates[j].newSold;
+        var upd = await updateBreadBatchSold(batchUpdates[j].id, batchUpdates[j].newSold);
+        if (upd && upd.error) { updateFailed = true; break; }
+        appliedUpdates.push(batchUpdates[j]);
       }
+      if (updateFailed) {
+        // put the batches back and remove the sale so the stock count and the sales record still match
+        for (var u = 0; u < appliedUpdates.length; u++) {
+          var before = breadBatches.find(function (bb) { return bb.id === appliedUpdates[u].id; });
+          if (before) await updateBreadBatchSold(before.id, before.quantity_sold);
+        }
+        if (saleResult.data && saleResult.data.id != null) await supabaseClient.from("sales").delete().eq("id", saleResult.data.id);
+        saveBtn.disabled = false;
+        toast("Couldn't update the bread stock, so the sale was not saved. Please try again.");
+        return;
+      }
+      batchUpdates.forEach(function (bu) {
+        var localBatch = breadBatches.find(function (bb) { return bb.id === bu.id; });
+        if (localBatch) localBatch.quantity_sold = bu.newSold;
+      });
 
       saveBtn.disabled = false;
       await logActivitySupa("Recorded sale - " + recipe.name + " x" + qty);
@@ -4081,8 +4132,16 @@
     var pieH = 200, pieW = (CW - 14) / 2;
     y = ensure(y, pieH + 34);
     var qtyOf = function (n) { return qtyMap[n] || 0; };
-    drawPie(M, y, pieW, pieH, "Best Selling Bread", sales.length ? bestList : [], qtyOf, "Pieces sold \u00B7 " + rangeName);
-    drawPie(M + pieW + 14, y, pieW, pieH, "Lowest Selling Bread", sales.length ? lowList : [], qtyOf, "Pieces sold \u00B7 " + rangeName);
+    // Percentages are out of ALL pieces sold, so everything not shown goes into one "All other breads" slice.
+    var OTHER = "All other breads";
+    var allQtySold = Object.keys(qtyMap).reduce(function (t, n) { return t + qtyMap[n]; }, 0);
+    var withOther = function (list) {
+      var rest = allQtySold - list.reduce(function (t, n) { return t + (qtyMap[n] || 0); }, 0);
+      return { list: rest > 0 ? list.concat([OTHER]) : list, rest: rest };
+    };
+    var bestPie = withOther(bestList), lowPie = withOther(lowList);
+    drawPie(M, y, pieW, pieH, "Best Selling Bread", sales.length ? bestPie.list : [], function (n) { return n === OTHER ? bestPie.rest : qtyOf(n); }, "Pieces sold \u00B7 " + rangeName);
+    drawPie(M + pieW + 14, y, pieW, pieH, "Lowest Selling Bread", sales.length ? lowPie.list : [], function (n) { return n === OTHER ? lowPie.rest : qtyOf(n); }, "Pieces sold \u00B7 " + rangeName);
     y += pieH + 14;
     if (sales.length && lowUnsold.length) {
       doc.setFont(F.text, "italic"); doc.setFontSize(8.5); setC(MOCHA);
@@ -4141,7 +4200,6 @@
     }
     y += 30;
 
-    var sec = 7;
     var fc = extra && extra.forecast;
     if (fc && fc.pcs > 0) {
       y = sectionTitle("7.  Pre-Baking Profit Forecast", y);
@@ -4157,22 +4215,9 @@
       y = doc.lastAutoTable.finalY;
       doc.setFont(F.text, "italic"); doc.setFontSize(8); setC(MOCHA);
       doc.text("This is a projection only. It is not counted as a real sale.", M, y + 14);
-      y += 44; sec = 8;
+      y += 44;
     }
 
-    y = sectionTitle(sec + ".  Notes", y);
-    var notes = [
-      "All amounts are expressed in Philippine Pesos (PHP).",
-      "Net profit is presented equal to gross profit; no operating expenses are deducted in this report.",
-      "A bread item is classified as “High Profit” when its margin is 50% or higher, otherwise “Low Profit”."
-    ];
-    doc.setFont(F.text, "normal"); doc.setFontSize(9); setC(MOCHA);
-    notes.forEach(function (n, i) {
-      var l = doc.splitTextToSize((i + 1) + ".  " + n, CW - 14);
-      y = ensure(y, l.length * 12 + 4);
-      doc.text(l, M + 8, y, { lineHeightFactor: 1.35 });
-      y += l.length * 12.5 + 3;
-    });
     y += 14;
 
     y = ensure(y, 50);
@@ -4202,7 +4247,7 @@
       doc.text("Page " + p + " of " + pageCount, W - M, H - 28, { align: "right" });
     }
 
-    var fileDate = new Date().toISOString().slice(0, 10);
+    var fileDate = ymd(new Date());
     doc.save("DRR-Bakery-Report-" + fileDate + ".pdf");
   }
 
@@ -4467,10 +4512,14 @@
       var names = (lowest ? sold : all).sort(function (a, b) {
         return (lowest ? byItem[a].qty - byItem[b].qty : byItem[b].qty - byItem[a].qty) || a.localeCompare(b);
       }).slice(0, 5);
-      renderPie(el, names.map(function (n) {
+      var pieRows = names.map(function (n) {
         return { label: n, value: byItem[n].qty,
           tip: "<strong>" + svgEsc(n) + "</strong><br>" + byItem[n].qty + " pcs sold<br>Sales " + peso(byItem[n].rev) };
-      }), (lowest ? "Lowest" : "Best") + " selling bread by pieces sold");
+      });
+      var allQty = all.reduce(function (t, n) { return t + byItem[n].qty; }, 0);
+      var shownQty = names.reduce(function (t, n) { return t + byItem[n].qty; }, 0);
+      if (allQty - shownQty > 0) pieRows.push({ label: "All other breads", value: allQty - shownQty, tip: "<strong>All other breads</strong><br>" + (allQty - shownQty) + " pcs sold" });
+      renderPie(el, pieRows, (lowest ? "Lowest" : "Best") + " selling bread by pieces sold");
       var unsold = all.filter(function (n) { return byItem[n].qty === 0; }).sort();
       if (lowest && unsold.length) {
         el.insertAdjacentHTML("beforeend", '<p class="chart-sub" style="margin:10px 0 0;">No sales in this period (' + unsold.length + '): ' +
@@ -4656,29 +4705,32 @@
   function initPhotoSlideshow() {
     document.querySelectorAll(".dash-photo[data-slideshow]").forEach(function (fig) {
       var slides = fig.querySelectorAll(".photo-stack img");
+      var stack = fig.querySelector(".photo-stack");
       var dotsWrap = fig.querySelector(".photo-dots");
-      if (slides.length < 2 || !dotsWrap) return;
+      if (slides.length < 2 || !stack) return;
+      if (dotsWrap) dotsWrap.remove();               // the little boxes under the photo are replaced by two arrow buttons
       var idx = 0, timer = null;
-      var dots = [];
       function show(i) {
         idx = (i + slides.length) % slides.length;
         slides.forEach(function (img, n) { img.classList.toggle("is-active", n === idx); });
-        dots.forEach(function (d, n) { d.classList.toggle("is-active", n === idx); d.setAttribute("aria-current", n === idx ? "true" : "false"); });
       }
       function stop() { if (timer) { clearInterval(timer); timer = null; } }
       function start() {
         if (timer || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
         timer = setInterval(function () { show(idx + 1); }, 4500);
       }
-      slides.forEach(function (img, n) {
-        var d = document.createElement("button");
-        d.type = "button";
-        d.className = "photo-dot";
-        d.setAttribute("aria-label", "Show photo " + (n + 1) + " of " + slides.length);
-        d.addEventListener("click", function () { show(n); stop(); start(); });
-        dotsWrap.appendChild(d);
-        dots.push(d);
-      });
+      function makeArrow(dir) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "photo-arrow " + (dir < 0 ? "prev" : "next");
+        btn.setAttribute("aria-label", dir < 0 ? "Previous photo" : "Next photo");
+        btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="' +
+          (dir < 0 ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7") + '" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        btn.addEventListener("click", function () { show(idx + dir); stop(); start(); });
+        stack.appendChild(btn);
+      }
+      makeArrow(-1);
+      makeArrow(1);
       fig.addEventListener("mouseenter", stop);
       fig.addEventListener("mouseleave", start);
       fig.addEventListener("focusin", stop);
