@@ -2162,3 +2162,64 @@ html { scroll-behavior: auto; overflow-anchor: none; }
 .ai-chat-meta { flex-shrink: 0; font-size: 0.7rem; color: var(--color-mocha); margin-top: -6px; }
 .ai-chat-meta.bot { align-self: flex-start; padding-left: 4px; }
 .ai-chat-meta.user { align-self: flex-end; padding-right: 4px; }
+
+/* Password fields that have the page's own eye button: hide the browser's built-in "show password"
+   eye (Edge / Internet Explorer) so only one eye icon shows. Fields without their own eye keep the browser's. */
+input[type="password"][data-has-toggle="true"]::-ms-reveal,
+input[type="password"][data-has-toggle="true"]::-ms-clear {
+  display: none;
+}
+
+
+/* ==========================================================================
+   Square corners everywhere, except buttons (and true circles such as dots and the profile icon)
+   ========================================================================== */
+:root { --radius-md: 0; --radius-lg: 0; }   /* inputs, cards, panels, tables, boxes, chat window... */
+
+/* Buttons keep their rounded corners */
+.btn, .btn-dark, .btn-outline, .btn-back, .chip, .tab-btn { border-radius: 10px; }
+
+/* Boxes and labels that had their own fixed round value */
+.avatar-menu-link,
+.data-table select,
+.action-icon,
+.ai-chat-header .ai-chat-avatar,
+.ai-chat-msg,
+.ai-chat-typing,
+.ai-chat-input-row input,
+.ai-chat-menu,
+.donut-legend .pill,
+.status-pill,
+.top-badge,
+.toast,
+.bar-track .bar,
+.chart-swatch,
+.chart-tip,
+.dash-photo img { border-radius: 0; }
+/* Bread picture sits beside the Bread item field */
+.bs-top-row { align-items: flex-start; }
+.bs-top-row .bs-pic-row { flex: 0 0 auto; flex-direction: column; align-items: flex-start; gap: 6px; margin: 0 0 20px; }
+.bs-top-row .bs-pic-frame { width: 150px; }
+.bs-top-row .bs-pic-name { display: none; }
+@media (max-width: 860px) { .bs-top-row { align-items: stretch !important; } .bs-top-row .bs-pic-row { width: 100%; flex-direction: row; align-items: center; } .bs-top-row .bs-pic-frame { width: 110px; } }
+
+/* Ingredient edit form: equal, aligned columns */
+.edit-ing-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 20px; align-items: start; }
+.edit-ing-grid .field-group { margin: 0 !important; min-width: 0; width: 100%; }
+.edit-ing-grid .field-group label { display: block; margin-bottom: 6px; }
+.edit-ing-grid .field-control, .edit-ing-grid .field-control input, .edit-ing-grid .field-control select { width: 100%; box-sizing: border-box; }
+.edit-ing-grid .field-hint { margin: 6px 0 0; }
+@media (max-width: 860px) { .edit-ing-grid { grid-template-columns: 1fr; } }
+
+/* Account status colours */
+.status-pill.status-active { background: #355E45; color: #fff; }
+.status-pill.status-inactive { background: #9c2a2a; color: #fff; }
+
+.data-table td a.row-action-delete { color: #9c2a2a; }
+
+/* Raw ingredients table: Edit green, Delete red */
+#ingredient-stock-body a[data-edit] { color: #355E45; }
+#ingredient-stock-body button[data-delete] { color: #9c2a2a; }
+
+.donut-legend .legend-head { padding-bottom: 2px; }
+.donut-legend .legend-head .amt { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }

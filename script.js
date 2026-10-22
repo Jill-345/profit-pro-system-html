@@ -589,7 +589,10 @@
   }
 
   function r2(n) { return Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100; }
-  function peso(n) { return "\u20B1" + r2(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function peso(n) {
+    var v = r2(n);
+    return (v < 0 ? "-" : "") + "\u20B1" + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
   function pct2(n) { return r2(n).toFixed(2) + "%"; }
   function fmtCostPer(cost, unit) {
     var c = Number(cost) || 0, u = unit;
@@ -603,6 +606,7 @@
   function fmtQty(n) { return Number(Number(n).toFixed(2)).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
 
   // Up to 4 decimals, no trailing zeros (0.0075 stays 0.0075; 1.275 stays 1.275).
+  function fmtWhole(n) { return Math.round(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
   function fmtQty4(n) { return Number(Number(n).toFixed(4)).toLocaleString(undefined, { maximumFractionDigits: 4 }); }
   // "1,275 g (1.275 kg)" - the price is shown per kg / per L, so show the quantity that way too and
   // quantity x price can be worked out on a calculator.
@@ -896,19 +900,6 @@
       gross_profit: grossProfit,
       logged_by: currentUserId()
     }).select().single();
-  }
-
-  async function insertForecast(recipeId, expectedUnits, wastePct, revenue, foodCost, grossProfit, marginPct) {
-    return await supabaseClient.from("profit_forecast").insert({
-      recipe_id: recipeId,
-      expected_units: expectedUnits,
-      expected_waste_pct: wastePct,
-      expected_revenue: revenue,
-      expected_food_cost: foodCost,
-      expected_gross_profit: grossProfit,
-      expected_margin_pct: marginPct,
-      created_by: currentUserId()
-    });
   }
 
   function currentPageFile() {
@@ -1747,7 +1738,7 @@
   function computeIngredientAlerts(ingredients) {
     return ingredients.filter(function (i) {
       return i.baseline_cost_per_unit > 0 &&
-        Math.abs(i.cost_per_unit - i.baseline_cost_per_unit) / i.baseline_cost_per_unit >= 0.05;
+        (i.cost_per_unit - i.baseline_cost_per_unit) / i.baseline_cost_per_unit >= 0.05;
     }).length;
   }
 
@@ -1766,7 +1757,7 @@
     document.getElementById("stat-foodcost").textContent = pct2(computeAverageFoodCostPct(recipes));
     var todayProfit = todaySales.reduce(function (sum, s) { return sum + s.gross_profit; }, 0);
     document.getElementById("stat-profit").textContent = peso(todayProfit);
-    document.getElementById("stat-alerts").textContent = computeIngredientAlerts(ingredients);
+    document.getElementById("stat-alerts").textContent = computeLowStockCount(ingredients);
 
     await renderMonthlySalesChart();
     await renderTopBreadDonut();
@@ -1930,6 +1921,14 @@
       startAngle = endAngle;
     });
 
+    var headerLi = document.createElement("li");
+    headerLi.className = "legend-head";
+    headerLi.innerHTML = '<span class="dot" style="visibility:hidden"></span>' +
+      '<span class="name"></span>' +
+      '<span class="amt">Price</span>' +
+      '<span class="pill" style="visibility:hidden">00.00%</span>';
+    legend.appendChild(headerLi);
+
     breadData.forEach(function (d) {
       var pctOfTotal = total > 0 ? (d.value / total) * 100 : 0;
       var li = document.createElement("li");
@@ -2007,6 +2006,45 @@
       if (addRecipeBtn) addRecipeBtn.style.display = "none";
     }
 
+    var canDeleteRecipes = getCurrentRole() !== "Staff";
+
+    tbody.addEventListener("click", async function (e) {
+      var link = e.target.closest ? e.target.closest("[data-delete-recipe]") : null;
+      if (!link) return;
+      e.preventDefault();
+      var id = link.getAttribute("data-delete-recipe");
+      var rec = allRecipes.find(function (x) { return String(x.id) === String(id); });
+      if (!rec) return;
+      if (!confirm('Delete "' + rec.name + '"? This can\'t be undone.')) return;
+
+      // Remember the ingredient lines so they can be put back if the recipe itself can't be deleted.
+      var linesRes = await supabaseClient.from("recipe_ingredients").select("*").eq("recipe_id", rec.id);
+      if (linesRes.error) { toast("Couldn't delete: " + linesRes.error.message); return; }
+      var savedLines = linesRes.data || [];
+
+      var delLines = await supabaseClient.from("recipe_ingredients").delete().eq("recipe_id", rec.id);
+      if (delLines.error) { toast("Couldn't delete: " + delLines.error.message); return; }
+
+      var delRec = await supabaseClient.from("recipes").delete().eq("id", rec.id).select("id");
+      var failed = delRec.error || !delRec.data || !delRec.data.length;
+      if (failed) {
+        if (savedLines.length) await supabaseClient.from("recipe_ingredients").insert(savedLines);
+        if (delRec.error && delRec.error.code === "23503") {
+          toast("Can't delete because " + rec.name + " is already used in bread inventory or sales records.");
+        } else if (delRec.error) {
+          toast("Couldn't delete: " + delRec.error.message);
+        } else {
+          toast("Couldn't delete: the database did not remove it. Check the Supabase delete permission (RLS policy) on the recipes table.");
+        }
+        return;
+      }
+
+      allRecipes = allRecipes.filter(function (x) { return String(x.id) !== String(rec.id); });
+      await logActivitySupa("Deleted recipe - " + rec.name);
+      render();
+      toast(rec.name + " deleted.");
+    });
+
     function render() {
       var query = (searchInput.value || "").trim().toLowerCase();
       var rows = allRecipes.filter(function (r) {
@@ -2029,7 +2067,8 @@
           "<td>" + peso(r.cost_per_piece) + "</td>" +
           "<td>" + peso(r.selling_price) + "</td>" +
           "<td>" + pct2(margin) + "</td>" +
-          '<td><a href="recipe-view.html?id=' + r.id + '" class="row-action">view</a></td>';
+          '<td><a href="recipe-view.html?id=' + r.id + '" class="row-action">View</a>' +
+          (canDeleteRecipes ? ' &nbsp; <a href="#" class="row-action row-action-delete" data-delete-recipe="' + r.id + '">Delete</a>' : '') + '</td>';
         tbody.appendChild(tr);
       });
     }
@@ -2082,7 +2121,7 @@
       allIngredients.forEach(function (ing) {
         var opt = document.createElement("option");
         opt.value = ing.id;
-        opt.textContent = ing.name + " \u2014 " + fmtCostPer(ing.cost_per_unit, ing.unit).replace(" / ", "/") + " \u00B7 " + fmtQty(ing.stock_qty) + " " + ing.unit + " in stock";
+        opt.textContent = ing.name + " \u2014 " + fmtCostPer(ing.cost_per_unit, ing.unit).replace(" / ", "/") + " \u00B7 " + fmtWhole(ing.stock_qty) + " " + ing.unit + " in stock";
         ingredientSelect.appendChild(opt);
       });
     }
@@ -2096,7 +2135,7 @@
       // Recipes are written in g / ml, so that is what the box starts on even when the ingredient is stocked in kg / L.
       var startUnit = ing.unit === "kg" ? "g" : (ing.unit === "L" ? "ml" : ing.unit);
       ingUnitSelect.innerHTML = choices.map(function (u) { return '<option value="' + u + '"' + (u === startUnit ? " selected" : "") + ">" + u + "</option>"; }).join("");
-      pickHint.textContent = "In stock: " + qtyBoth(ing.stock_qty, ing.unit) + "  \u00B7  " + fmtCostPer(ing.cost_per_unit, ing.unit);
+      pickHint.textContent = "";
       updateLinePreview();
     }
     // Live working: "1.275 kg x P60.80 / kg = P77.52" so a wrong unit is caught before the line is added.
@@ -2236,8 +2275,10 @@
       if (!lineItems.length) { toast("Add at least one ingredient first."); return; }
       if (!baseBatch || Math.floor(baseBatch) !== baseBatch || baseBatch < 1) { toast("Enter the base batch size (yield) as a whole number of pieces."); return; }
       var typedPrice = parseFloat(sellingPriceInput.value), typedTarget = parseFloat(targetFoodCostInput.value);
-      if (sellingPriceInput.value !== "" && !(typedPrice > 0)) { toast("The selling price must be more than 0."); return; }
-      if (targetFoodCostInput.value !== "" && !(typedTarget > 0 && typedTarget <= 100)) { toast("The target food cost must be between 1% and 100%."); return; }
+      if (targetFoodCostInput.value === "") { toast("Enter the target food cost % before saving."); targetFoodCostInput.focus(); return; }
+      if (!(typedTarget > 0 && typedTarget <= 100)) { toast("The target food cost must be between 1% and 100%."); targetFoodCostInput.focus(); return; }
+      if (sellingPriceInput.value === "") { toast("Enter the selling price before saving."); sellingPriceInput.focus(); return; }
+      if (!(typedPrice > 0)) { toast("The selling price must be more than 0."); sellingPriceInput.focus(); return; }
 
       var totals = recompute();
       var portions = parseFloat(portionsInput.value) || 1;
@@ -2408,7 +2449,7 @@
       ingredients.forEach(function (ing) {
         var isLow = ing.low_stock_threshold != null && ing.stock_qty <= ing.low_stock_threshold;
         var showsConversion = ing.purchase_unit && ing.purchase_unit !== ing.unit && ing.units_per_purchase && ing.units_per_purchase !== 1;
-        var nameCell = ing.name + (isLow ? ' <span class="status-pill" style="background:#9C3B1E;">Low stock</span>' : "");
+        var nameCell = ing.name + (isLow ? ' <span class="status-pill" style="background:#9C3B1E;">&#9888; Low stock</span>' : "");
         if (showsConversion) {
           nameCell += '<br><span class="field-hint" style="margin:2px 0 0;">1 ' + ing.purchase_unit + ' = ' + Number(ing.units_per_purchase).toLocaleString() + ' ' + ing.unit + '</span>';
         }
@@ -2419,8 +2460,8 @@
             "<td>" + nameCell + "</td>" +
             "<td>" + (ing.category || "") + "</td>" +
             "<td>" + ing.unit + "</td>" +
-            "<td>" + qtyBoth(ing.stock_qty, ing.unit) + "</td>" +
-            "<td>" + (ing.low_stock_threshold != null ? fmtQty(ing.low_stock_threshold) + " " + ing.unit : "\u2014") + "</td>" +
+            "<td" + (isLow ? ' style="color:#9C3B1E;font-weight:700;"' : "") + ">" + (isLow ? "&#9888; " : "") + fmtWhole(ing.stock_qty) + " " + ing.unit + "</td>" +
+            "<td>" + (ing.low_stock_threshold != null ? fmtWhole(ing.low_stock_threshold) + " " + ing.unit : "\u2014") + "</td>" +
             "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>";
           body.appendChild(tr);
           return;
@@ -2430,8 +2471,8 @@
           "<td>" + (ing.category || "") + "</td>" +
           "<td>" + ing.unit + "</td>" +
           "<td>" + fmtCostPer(ing.cost_per_unit, ing.unit) + "</td>" +
-          "<td>" + qtyBoth(ing.stock_qty, ing.unit) + "</td>" +
-          "<td>" + (ing.low_stock_threshold != null ? fmtQty(ing.low_stock_threshold) + " " + ing.unit : "\u2014") + "</td>" +
+          "<td" + (isLow ? ' style="color:#9C3B1E;font-weight:700;"' : "") + ">" + (isLow ? "&#9888; " : "") + fmtWhole(ing.stock_qty) + " " + ing.unit + "</td>" +
+          "<td>" + (ing.low_stock_threshold != null ? fmtWhole(ing.low_stock_threshold) + " " + ing.unit : "\u2014") + "</td>" +
           "<td>" + new Date(ing.updated_at).toLocaleDateString() + "</td>" +
           '<td><a href="#" class="row-action" data-restock="' + ing.id + '">Restock</a></td>' +
           '<td><a href="#" class="row-action" data-edit="' + ing.id + '">Edit</a></td>' +
@@ -2461,7 +2502,7 @@
           if (deleteResult.error) {
             btn.disabled = false;
             if (deleteResult.error.code === "23503") {
-              toast("Can't delete \u2014 " + ing.name + " is used in a recipe. Remove it from that recipe first.");
+              toast("Can't delete because " + ing.name + " is already used in a recipe. Remove it from that recipe first.");
             } else {
               toast("Couldn't delete: " + deleteResult.error.message);
             }
@@ -2588,10 +2629,10 @@
 
         tr.innerHTML =
           '<td colspan="10">' +
-            '<div class="form-row" style="align-items:flex-end;margin:0;flex-wrap:wrap;">' +
+            '<div class="edit-ing-grid">' +
               field("Name", "edit-name", "text", ing.name) +
               '<div class="field-group" style="margin-bottom:0;"><label>Category</label><div class="field-control"><select id="edit-category-' + ing.id + '">' + categoryOptionsHtml(ing.category || "", !ing.category) + '</select></div></div>' +
-              field("Supplier", "edit-supplier", "text", ing.supplier || "") +
+              field("Supplier (optional)", "edit-supplier", "text", ing.supplier || "") +
               '<div class="field-group" style="margin-bottom:0;"><label>Price per ' + escAttr(priceLabelUnit) + ' (\u20B1)</label>' +
                 '<div class="field-control"><input type="number" id="edit-price-' + ing.id + '" value="' + shownPrice + '" min="0" step="any"></div>' +
                 '<p class="field-hint" id="edit-price-hint-' + ing.id + '"></p></div>' +
@@ -2701,9 +2742,11 @@
       var qty = parseFloat(qtyInput.value);
       var price = parseFloat(priceInput.value);
       var purchaseUnitRaw = document.getElementById("ing-purchase-unit").value.trim();
+      var purchaseChosen = purchaseUnitRaw !== "";
+      if (purchaseUnitRaw === "__same") purchaseUnitRaw = "";
       var hasPackage = purchaseUnitRaw !== "";
       var qtyUnitEl = document.getElementById("ing-qty-unit");
-      var res = { unit: unit, qty: qty, price: price, hasPackage: hasPackage, purchaseUnitRaw: purchaseUnitRaw, conversion: 0, purchaseUnit: "", factorError: "", hint: "" };
+      var res = { unit: unit, qty: qty, price: price, chosen: purchaseChosen, hasPackage: hasPackage, purchaseUnitRaw: purchaseUnitRaw, conversion: 0, purchaseUnit: "", factorError: "", hint: "" };
       if (hasPackage) {
         var packSize = parseFloat(document.getElementById("ing-pack-size").value) || 0;
         var packUnit = document.getElementById("ing-pack-unit").value;
@@ -2801,6 +2844,7 @@
       var qty = parseFloat(qtyInput.value);
       var totalPrice = parseFloat(priceInput.value);
       var purchase = readPurchase();
+      if (!purchase.chosen) { toast("Please choose how you buy this ingredient (Purchased as)."); return; }
       if (purchase.factorError) { toast(purchase.factorError); return; }
       var conversion = purchase.conversion;       // recipe units in ONE purchased unit (sack, tray, kg...)
       var purchaseUnit = purchase.purchaseUnit;
@@ -2933,7 +2977,7 @@
         var short = have && Number(have.stock_qty) + 1e-9 < usedQty;
         var tr = document.createElement("tr");
         tr.innerHTML = "<td>" + item.name + "</td><td>" + fmtQty(usedQty) + " " + item.unit +
-          (short ? ' <span style="color:#9C3B1E;">\u2014 only ' + fmtQty(have.stock_qty) + " in stock</span>" : "") + "</td>";
+          (short ? ' <span style="color:#9C3B1E;">\u2014 only ' + fmtWhole(have.stock_qty) + " in stock</span>" : "") + "</td>";
         bsIngredientsBody.appendChild(tr);
       });
     }
@@ -2972,7 +3016,7 @@
       var consumed = lines.map(function (item) {
         var ing = ingredients.find(function (i) { return i.id === item.ingredientId; });
         var usedQty = usedAmount(item.qty * scale, item.unit);
-        if (ing && Number(ing.stock_qty) + 1e-9 < usedQty) shortNames.push(item.name + " (need " + fmtQty(usedQty) + " " + item.unit + ", have " + fmtQty(ing.stock_qty) + ")");
+        if (ing && Number(ing.stock_qty) + 1e-9 < usedQty) shortNames.push(item.name + " (need " + fmtQty(usedQty) + " " + item.unit + ", have " + fmtWhole(ing.stock_qty) + ")");
         return { ingredientId: item.ingredientId, usedQty: usedQty, newStockQty: ing ? ing.stock_qty - usedQty : 0 };
       });
       if (shortNames.length && !confirm("Not enough stock for:\n- " + shortNames.join("\n- ") + "\n\nThese will be set to 0. Log the bread anyway?")) return;
@@ -3052,7 +3096,7 @@
           "<td>" + (nm.middle ? escAttr(nm.middle) : "\u2014") + "</td>" +
           "<td>" + acc.role + "</td>" +
           "<td>" + acc.email + "</td>" +
-          '<td><span class="status-pill">' + acc.status + '</span></td>' +
+          '<td><span class="status-pill ' + (acc.status === "Active" ? "status-active" : "status-inactive") + '">' + acc.status + '</span></td>' +
           '<td><a href="edit-account.html?id=' + acc.id + '" class="row-action">Edit</a></td>';
         body.appendChild(tr);
       });
@@ -3420,13 +3464,28 @@
       });
 
       document.getElementById("deactivate-account-btn").addEventListener("click", async function () {
-        var updateResult = await supabaseClient.from("profiles").update({ status: "Inactive" }).eq("id", acc.id);
-        if (updateResult.error) { toast("Couldn't deactivate: " + updateResult.error.message); return; }
-        acc.status = "Inactive";
+        var deactivateBtnEl = document.getElementById("deactivate-account-btn");
+        var previousStatus = acc.status === "Active" ? "Active" : "Inactive";
+        // Select "Inactive" straight away so the page shows what is being saved.
         pendingStatus = "Inactive";
         setStatusUI("Inactive");
+        deactivateBtnEl.disabled = true;
+
+        var updateResult = await supabaseClient.from("profiles").update({ status: "Inactive" }).eq("id", acc.id).select("id, status");
+        var saved = !updateResult.error && updateResult.data && updateResult.data.length && updateResult.data[0].status === "Inactive";
+        if (!saved) {
+          deactivateBtnEl.disabled = false;
+          pendingStatus = previousStatus;
+          setStatusUI(previousStatus);
+          toast(updateResult.error
+            ? "Couldn't deactivate: " + updateResult.error.message
+            : "Couldn't deactivate: the database did not save the change. Check the Supabase update permission (RLS policy) on the profiles table.");
+          return;
+        }
+        acc.status = "Inactive";
         await logActivitySupa("Deactivated account - " + acc.full_name);
-        toast(acc.full_name + " has been deactivated.");
+        toast(acc.full_name + " has been deactivated and saved.");
+        setTimeout(function () { window.location.href = "admin.html"; }, 900);
       });
 
       document.getElementById("delete-account-btn").addEventListener("click", async function () {
@@ -3447,13 +3506,18 @@
         var currentStatus = acc.status === "Active" ? "Active" : "Inactive";
         if (pendingRole !== acc.role) changes.role = pendingRole;
         if (pendingStatus !== currentStatus) changes.status = pendingStatus;
-        if (!Object.keys(changes).length) { toast("No changes to save."); return; }
+        if (!Object.keys(changes).length) { toast("Everything is already saved."); return; }
 
         saveAccountBtn.disabled = true;
-        var saveResult = await supabaseClient.from("profiles").update(changes).eq("id", acc.id);
+        var saveResult = await supabaseClient.from("profiles").update(changes).eq("id", acc.id).select("id, role, status");
         if (saveResult.error) {
           saveAccountBtn.disabled = false;
           toast("Couldn't save changes: " + saveResult.error.message);
+          return;
+        }
+        if (!saveResult.data || !saveResult.data.length) {
+          saveAccountBtn.disabled = false;
+          toast("Couldn't save changes: the database did not save them. Check the Supabase update permission (RLS policy) on the profiles table.");
           return;
         }
         if (changes.role) {
@@ -3470,6 +3534,44 @@
     }
 
     load();
+  }
+
+  /* ---- Business hours: day and time drop-downs saved as one line, e.g. "Mon\u2013Sat, 6:00 AM \u2013 7:00 PM" ---- */
+  var HOURS_DAYS = [["Mon", "Monday"], ["Tue", "Tuesday"], ["Wed", "Wednesday"], ["Thu", "Thursday"], ["Fri", "Friday"], ["Sat", "Saturday"], ["Sun", "Sunday"]];
+  function hoursTimeLabel(minutes) {
+    var h = Math.floor(minutes / 60), m = minutes % 60;
+    return ((h % 12) || 12) + ":" + (m < 10 ? "0" : "") + m + " " + (h < 12 ? "AM" : "PM");
+  }
+  function fillBusinessHourOptions() {
+    var opts = function (items, first) {
+      return '<option value="">' + first + "</option>" + items.map(function (it) { return '<option value="' + it[0] + '">' + it[1] + "</option>"; }).join("");
+    };
+    var times = [];
+    for (var t = 0; t < 24 * 60; t += 30) times.push([hoursTimeLabel(t), hoursTimeLabel(t)]);
+    document.getElementById("business-day-from").innerHTML = opts(HOURS_DAYS, "Select day");
+    document.getElementById("business-day-to").innerHTML = opts(HOURS_DAYS, "Select day");
+    document.getElementById("business-time-open").innerHTML = opts(times, "Select time");
+    document.getElementById("business-time-close").innerHTML = opts(times, "Select time");
+  }
+  // "Mon\u2013Sat, 6:00 AM \u2013 7:00 PM" (or an older "Mon-Fri") -> the four drop-downs
+  function setBusinessHoursFromText(text) {
+    var dayRe = "(Mon|Tue|Wed|Thu|Fri|Sat|Sun)", timeRe = "(\\d{1,2}:\\d{2} [AP]M)";
+    var m = new RegExp("^\\s*" + dayRe + "(?:\\s*[\\u2013-]\\s*" + dayRe + ")?(?:\\s*,\\s*" + timeRe + "\\s*[\\u2013-]\\s*" + timeRe + ")?\\s*$", "i").exec(text || "");
+    var set = function (id, v) { document.getElementById(id).value = v || ""; };
+    var cap = function (d) { return d ? d.charAt(0).toUpperCase() + d.slice(1).toLowerCase() : ""; };
+    if (!m) { set("business-day-from", ""); set("business-day-to", ""); set("business-time-open", ""); set("business-time-close", ""); return; }
+    set("business-day-from", cap(m[1]));
+    set("business-day-to", cap(m[2] || m[1]));
+    set("business-time-open", m[3] ? m[3].toUpperCase() : "");
+    set("business-time-close", m[4] ? m[4].toUpperCase() : "");
+  }
+  // The four drop-downs -> one line of text ("" when nothing is chosen). Returns null if it is only half filled in.
+  function readBusinessHours() {
+    var from = document.getElementById("business-day-from").value, to = document.getElementById("business-day-to").value;
+    var open = document.getElementById("business-time-open").value, close = document.getElementById("business-time-close").value;
+    if (!from && !to && !open && !close) return "";
+    if (!from || !to || !open || !close) return null;
+    return (from === to ? from : from + "\u2013" + to) + ", " + open + " \u2013 " + close;
   }
 
   function initProfilePage() {
@@ -3504,8 +3606,10 @@
         var settings = settingsResult.data || {};
         document.getElementById("business-name").value = settings.bakery_name || "DRR Bakery";
         document.getElementById("business-currency").value = settings.currency || "PHP";
-        document.getElementById("business-target-foodcost").value = settings.target_food_cost_pct || "";
-        document.getElementById("business-hours").value = settings.business_hours || "";
+        fillBusinessHourOptions();
+        setBusinessHoursFromText(settings.business_hours || "");
+        var savedNote = document.getElementById("business-hours-saved");
+        if (savedNote) savedNote.textContent = settings.business_hours ? "Saved hours: " + settings.business_hours : "No business hours saved yet.";
       }
     }
 
@@ -3513,21 +3617,37 @@
     if (saveBtn) {
       saveBtn.addEventListener("click", async function () {
         if (session.role !== "Super Admin") return;
-        saveBtn.disabled = true;
 
-        var result = await supabaseClient.from("business_settings").update({
-          bakery_name: document.getElementById("business-name").value.trim(),
+        var name = document.getElementById("business-name").value.trim();
+        if (!name) { toast("Please enter the bakery name."); return; }
+        var hours = readBusinessHours();
+        if (hours === null) { toast("Please choose both days and both times for the business hours, or leave all four empty."); return; }
+        if (hours && document.getElementById("business-time-open").value === document.getElementById("business-time-close").value) { toast("The opening and closing time cannot be the same."); return; }
+        var fields = {
+          bakery_name: name,
           currency: document.getElementById("business-currency").value,
-          target_food_cost_pct: parseFloat(document.getElementById("business-target-foodcost").value) || 0,
-          business_hours: document.getElementById("business-hours").value.trim()
-        }).eq("id", 1);
+          business_hours: hours
+        };
 
+        saveBtn.disabled = true;
+        // Update the settings row; if it does not exist yet (a new database), create it.
+        var result = await supabaseClient.from("business_settings").update(fields).eq("id", 1).select();
+        if (!result.error && (!result.data || !result.data.length)) {
+          result = await supabaseClient.from("business_settings").insert(Object.assign({ id: 1, target_food_cost_pct: 30 }, fields)).select();
+        }
         saveBtn.disabled = false;
+
         if (result.error) {
           toast("Couldn't save settings: " + result.error.message);
           return;
         }
+        if (!result.data || !result.data.length) {
+          toast("Nothing was saved because the database did not allow the change. Check the permissions of the business_settings table.");
+          return;
+        }
         await logActivitySupa("Updated business settings");
+        var savedNote2 = document.getElementById("business-hours-saved");
+        if (savedNote2) savedNote2.textContent = hours ? "Saved hours: " + hours : "No business hours saved yet.";
         toast("Changes saved.");
       });
     }
@@ -4071,8 +4191,8 @@
     y += lines.length * 15 + 18;
 
     y = sectionTitle("2.  Financial Summary", y);
-    var tiles = [["Total Sales", totalSales, C_SALES], ["Total Production Cost", totalCost, C_COST], ["Gross Profit", gross, GOOD], ["Net Profit", gross, [224, 168, 0]]];
-    var gap = 10, tw = (CW - gap * 3) / 4;
+    var tiles = [["Total Sales", totalSales, C_SALES], ["Total Production Cost", totalCost, C_COST], ["Gross Profit", gross, GOOD]];
+    var gap = 10, tw = (CW - gap * (tiles.length - 1)) / tiles.length;
     tiles.forEach(function (t, i) {
       var tx = M + i * (tw + gap);
       fillC(WHITE); drawC(WHEAT_LINE); doc.setLineWidth(0.7); doc.rect(tx, y, tw, 58, "FD");
@@ -4200,24 +4320,6 @@
     }
     y += 30;
 
-    var fc = extra && extra.forecast;
-    if (fc && fc.pcs > 0) {
-      y = sectionTitle("7.  Pre-Baking Profit Forecast", y);
-      doc.autoTable(Object.assign({}, tableBase, {
-        startY: y,
-        head: [["Bread Item", "Pieces to Bake", "Waste", "Expected Revenue", "Expected Food Cost", "Expected Gross Profit", "Expected Margin"]],
-        body: [[fc.name, fc.pcs.toLocaleString("en-US"), fc.wastePct + "%", money(fc.revenue), money(fc.foodCost), money(fc.grossProfit), pct2(fc.margin)]],
-        styles: Object.assign({}, tableBase.styles, { fontSize: 8.5 }),
-        headStyles: Object.assign({}, tableBase.headStyles, { fontSize: 7.5 }),
-        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right", fontStyle: "bold", textColor: GOOD }, 6: { halign: "right" } },
-        didParseCell: function (d) { alignHead(d, [1, 2, 3, 4, 5, 6], []); }
-      }));
-      y = doc.lastAutoTable.finalY;
-      doc.setFont(F.text, "italic"); doc.setFontSize(8); setC(MOCHA);
-      doc.text("This is a projection only. It is not counted as a real sale.", M, y + 14);
-      y += 44;
-    }
-
     y += 14;
 
     y = ensure(y, 50);
@@ -4298,7 +4400,6 @@
       document.getElementById("stat-total-sales").textContent = peso(totalSales);
       document.getElementById("stat-total-cost").textContent = peso(totalCost);
       document.getElementById("stat-gross-profit").textContent = peso(gross);
-      document.getElementById("stat-net-profit").textContent = peso(gross);
     }
 
     function renderRanking(sales) {
@@ -4425,8 +4526,8 @@
         var dimmed = trend.selected >= 0 && i !== trend.selected;
         out += '<g data-tip="' + svgEsc(tip) + '" tabindex="0"' + (dimmed ? ' opacity="0.3"' : '') + '>';
         out += '<rect x="' + (cx - gw / 2) + '" y="' + T + '" width="' + gw + '" height="' + ph + '" fill="transparent"/>';
-        out += '<path d="' + barPath(cx - bw - 1, T + ph - hs, bw, hs, 3) + '" fill="' + C_SALES + '"/>';
-        out += '<path d="' + barPath(cx + 1, T + ph - hc, bw, hc, 3) + '" fill="' + C_COST + '"/>';
+        out += '<path d="' + barPath(cx - bw - 1, T + ph - hs, bw, hs, 0) + '" fill="' + C_SALES + '"/>';
+        out += '<path d="' + barPath(cx + 1, T + ph - hc, bw, hc, 0) + '" fill="' + C_COST + '"/>';
         out += '</g>';
         if (i % every === 0) out += '<text x="' + cx + '" y="' + (H - 12) + '" text-anchor="middle" fill="' + C_MUTED + '" font-size="11">' + svgEsc(d.label) + '</text>';
       });
@@ -4448,7 +4549,7 @@
         out += '<g data-tip="' + svgEsc(r.tip) + '" tabindex="0">';
         out += '<rect x="0" y="' + y + '" width="' + W + '" height="' + rowH + '" fill="transparent"/>';
         out += '<text x="' + (L - 10) + '" y="' + (y + rowH / 2 + 4) + '" text-anchor="end" fill="' + C_INK + '" font-size="12">' + svgEsc(name) + '</text>';
-        out += '<path d="' + hBarPath(L, y + 7, w, rowH - 14, 4) + '" fill="' + r.color + '"/>';
+        out += '<path d="' + hBarPath(L, y + 7, w, rowH - 14, 0) + '" fill="' + r.color + '"/>';
         out += '<text x="' + (L + w + 8) + '" y="' + (y + rowH / 2 + 4) + '" fill="' + C_INK + '" font-size="12" font-weight="700">' + svgEsc(r.valueLabel) + '</text>';
         out += '</g>';
       });
@@ -4574,28 +4675,37 @@
         opt.textContent = r.name;
         select.appendChild(opt);
       });
-      document.getElementById("forecast-price").value = recipes[0].selling_price;
+      document.getElementById("forecast-price").value = Number(recipes[0].selling_price || 0).toFixed(2);
     }
 
     document.getElementById("forecast-bread-item").addEventListener("change", function () {
       var opt = this.options[this.selectedIndex];
-      document.getElementById("forecast-price").value = opt.dataset.price || 0;
+      document.getElementById("forecast-price").value = Number(opt.dataset.price || 0).toFixed(2);
       recomputeForecast();
     });
 
-    function recomputeForecast() {
+    // Cost to make one piece, taken from the recipe. 0 means the recipe has no ingredient costs yet.
+    function forecastUnitCost() {
       var select = document.getElementById("forecast-bread-item");
       var opt = select.options[select.selectedIndex];
-      var pcs = parseFloat(document.getElementById("forecast-pcs").value) || 0;
-      var price = parseFloat(document.getElementById("forecast-price").value) || 0;
-      var wastePct = parseFloat(document.getElementById("forecast-waste-pct").value) || 0;
-      var wastePcs = Math.round(pcs * (wastePct / 100));
-      document.getElementById("forecast-waste-pcs-label").textContent = wastePct + "% (" + wastePcs + "pcs)";
+      var c = opt ? parseFloat(opt.dataset.cost) : NaN;
+      return isFinite(c) && c > 0 ? c : 0;
+    }
 
-      var unitCost = opt && opt.dataset.cost ? parseFloat(opt.dataset.cost) : price * 0.4;
+    function recomputeForecast() {
+      var select = document.getElementById("forecast-bread-item");
+      var pcsRaw = parseFloat(document.getElementById("forecast-pcs").value);
+      var pcs = isFinite(pcsRaw) && pcsRaw > 0 ? Math.floor(pcsRaw) : 0;              // whole pieces only
+      var price = parseFloat(document.getElementById("forecast-price").value) || 0;
+      var wastePct = Math.min(100, Math.max(0, parseFloat(document.getElementById("forecast-waste-pct").value) || 0));
+      // Leftovers are whole pieces. Round UP so the forecast is never too optimistic.
+      var wastePcs = Math.max(0, Math.min(pcs, Math.ceil(pcs * (wastePct / 100) - 1e-9)));
+      document.getElementById("forecast-waste-pcs-label").textContent = wastePct + "% = " + wastePcs + (wastePcs === 1 ? " pc" : " pcs") + " left over";
+
+      var unitCost = forecastUnitCost();
       var sellablePcs = Math.max(0, pcs - wastePcs);
       var revenue = sellablePcs * price;
-      var foodCost = pcs * unitCost;
+      var foodCost = pcs * unitCost;                   // you pay for every piece you bake, sold or not
       var grossProfit = revenue - foodCost;
       var margin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
 
@@ -4604,30 +4714,20 @@
       document.getElementById("forecast-grossprofit").textContent = peso(grossProfit);
       document.getElementById("forecast-margin").textContent = pct2(margin);
 
-      return { revenue: revenue, foodCost: foodCost, grossProfit: grossProfit, margin: margin, pcs: pcs, wastePct: wastePct };
+      var note = document.getElementById("forecast-note");
+      if (note) {
+        if (!select.value) note.textContent = "Add a recipe first in Recipes & Costing, then come back to make a forecast.";
+        else if (!unitCost) note.textContent = "This bread has no ingredient cost yet, so the forecast would be wrong. Add its ingredients in Recipes & Costing first.";
+        else if (!pcs) note.textContent = "";
+        else if (!wastePcs) note.textContent = "Based on a cost of " + peso(unitCost) + " per piece. You sell all " + pcs.toLocaleString("en-US") + " pieces.";
+        else note.textContent = "Based on a cost of " + peso(unitCost) + " per piece. You sell about " + sellablePcs.toLocaleString("en-US") + " of " + pcs.toLocaleString("en-US") + " pieces, and " + wastePcs.toLocaleString("en-US") + " " + (wastePcs === 1 ? "is" : "are") + " left over.";
+      }
+
+      return { revenue: revenue, foodCost: foodCost, grossProfit: grossProfit, margin: margin, pcs: pcs, wastePct: wastePct, unitCost: unitCost };
     }
 
     ["forecast-pcs","forecast-price","forecast-waste-pct"].forEach(function (id) {
       document.getElementById(id).addEventListener("input", recomputeForecast);
-    });
-
-    document.getElementById("save-forecast-btn").addEventListener("click", async function () {
-      var select = document.getElementById("forecast-bread-item");
-      var recipeId = select.value;
-      var name = select.options[select.selectedIndex] ? select.options[select.selectedIndex].textContent : "";
-      var result = recomputeForecast();
-      if (!result.pcs) { toast("Enter expected pieces to bake & sell."); return; }
-      if (!recipeId) { toast("Add a recipe first."); return; }
-
-      var saveBtn = document.getElementById("save-forecast-btn");
-      saveBtn.disabled = true;
-      var saveResult = await insertForecast(recipeId, result.pcs, result.wastePct, result.revenue, result.foodCost, result.grossProfit, result.margin);
-      saveBtn.disabled = false;
-
-      if (saveResult.error) { toast("Couldn't save forecast: " + saveResult.error.message); return; }
-
-      await logActivitySupa("Saved forecast - " + name + " (" + result.pcs + " pcs)");
-      toast("Forecast saved for " + name + ". (This is a projection \u2014 it won't count as a real sale.)");
     });
 
       document.getElementById("print-report-btn").addEventListener("click", async function () {
@@ -4638,16 +4738,13 @@
       var selNow = currentSelection();
       var windowSales = await fetchSales(selNow.key);
       var sales = salesInPeriod(windowSales, selNow);
-      var fcSel = document.getElementById("forecast-bread-item");
-      var fc = recomputeForecast();
-      fc.name = fcSel.options[fcSel.selectedIndex] ? fcSel.options[fcSel.selectedIndex].textContent : "";
-      await exportReportToPdf(rangeSelect.value, sales, recipes, { forecast: fc, sel: selNow, windowSales: windowSales });
+      await exportReportToPdf(rangeSelect.value, sales, recipes, { sel: selNow, windowSales: windowSales });
       btn.disabled = false;
       btn.textContent = originalText;
     });
 
     populateBreadItemSelect();
-    if (recipes.length) recomputeForecast();
+    recomputeForecast();
     buildPeriodOptions();
     await refreshForSelection();
   }
@@ -4682,7 +4779,7 @@
 
   function protectSaveButtons() {
     ["save-recipe-btn", "save-ingredient-btn", "save-bread-stock-btn", "save-sale-btn",
-     "save-forecast-btn", "send-invite-btn", "create-account-btn"].forEach(function (id) {
+     "send-invite-btn", "create-account-btn"].forEach(function (id) {
       var btn = document.getElementById(id);
       if (!btn || btn.__guarded) return;
       btn.__guarded = true;

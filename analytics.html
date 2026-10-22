@@ -54,10 +54,6 @@
       <p class="stat-label">Gross Profit</p>
       <p class="stat-value" id="stat-gross-profit">₱ 0</p>
     </div>
-    <div class="stat-card">
-      <p class="stat-label">Net Profit</p>
-      <p class="stat-value" id="stat-net-profit">₱ 0</p>
-    </div>
   </div>
 
   <div class="section-head">
@@ -139,7 +135,7 @@
     <div class="field-group">
       <label for="forecast-pcs">Expected pcs to bake &amp; sell</label>
       <div class="field-control">
-        <input type="number" id="forecast-pcs" placeholder="e.g. 250" min="0">
+        <input type="number" id="forecast-pcs" placeholder="e.g. 250" min="0" step="1">
       </div>
     </div>
     <div class="field-group">
@@ -151,9 +147,9 @@
     <div class="field-group">
       <label for="forecast-waste-pct">Expected waste/leftovers %</label>
       <div class="field-control">
-        <input type="number" id="forecast-waste-pct" placeholder="e.g. 5" min="0" max="100" value="5">
+        <input type="number" id="forecast-waste-pct" placeholder="e.g. 5" min="0" max="100" step="any" value="0">
       </div>
-      <p class="field-hint" id="forecast-waste-pcs-label">5% (0pcs)</p>
+      <p class="field-hint" id="forecast-waste-pcs-label">0% = 0 pcs left over</p>
     </div>
   </div>
 
@@ -176,9 +172,7 @@
     </div>
   </div>
 
-  <div class="btn-row">
-    <button class="btn-dark" id="save-forecast-btn" type="button">Save Forecast</button>
-  </div>
+  <p class="field-hint" id="forecast-note" style="margin:4px 0 12px;"></p>
 
 </main>
 

@@ -116,7 +116,7 @@
       <button class="btn-outline" id="add-ingredient-line" type="button">+ Add ingredient</button>
     </div>
   </div>
-  <p class="field-hint" id="ing-pick-hint" style="margin-top:-8px;"></p>
+  <p class="field-hint" id="ing-pick-hint" style="margin:0;" hidden></p>
   <p class="field-hint" id="ing-line-preview" style="margin-top:-6px;font-weight:700;"></p>
   <p class="empty-note" style="margin-top:-8px;">Need something new? <a href="inventory.html?add=1">Edit ingredient from inventory</a></p>
 
@@ -134,13 +134,13 @@
   <h2 class="section-title">Recipe Scaling</h2>
   <div class="form-row">
     <div class="field-group">
-      <label for="input-target-foodcost">Target food cost %</label>
+      <label for="input-target-foodcost">Target food cost % <span aria-hidden="true">*</span></label>
       <div class="field-control">
         <input type="number" id="input-target-foodcost" placeholder="e.g. 30" min="1" max="95">
       </div>
     </div>
     <div class="field-group">
-      <label for="input-selling-price">Selling price</label>
+      <label for="input-selling-price">Selling price <span aria-hidden="true">*</span></label>
       <div class="field-control">
         <input type="number" id="input-selling-price" placeholder="e.g. 6.90" min="0" step="0.01">
       </div>

@@ -61,7 +61,11 @@
 
     <div class="inline-form" id="add-bread-stock-form">
       <h2 class="section-title" style="margin-top:0;">Add bread inventory</h2>
-      <div class="form-row">
+      <div class="form-row bs-top-row">
+        <div class="bs-pic-row" id="bs-pic-row">
+          <div class="bs-pic-frame" id="bs-pic-frame" aria-live="polite"></div>
+          <p class="bs-pic-name" id="bs-pic-name"></p>
+        </div>
         <div class="field-group">
           <label for="bs-bread-item">Bread item</label>
           <div class="field-control">
@@ -73,11 +77,6 @@
           <div class="field-control"><input type="text" id="bs-selling-price" disabled></div>
         </div>
       </div>
-      <div class="bs-pic-row" id="bs-pic-row">
-        <div class="bs-pic-frame" id="bs-pic-frame" aria-live="polite"></div>
-        <p class="bs-pic-name" id="bs-pic-name"></p>
-      </div>
-
       <div class="form-row">
         <div class="field-group">
           <label for="bs-qty-baked">Quantity baked</label>
@@ -182,10 +181,10 @@
       </div>
       <div class="form-row">
         <div class="field-group">
-          <label for="ing-purchase-unit">Purchased as (optional)</label>
+          <label for="ing-purchase-unit">Purchased as</label>
           <div class="field-control">
             <select id="ing-purchase-unit">
-              <option value="">Same as recipe unit</option>
+              <option value="" disabled selected>Select how you buy it</option>
               <option value="sack">Sack</option>
               <option value="box">Box</option>
               <option value="case">Case</option>
@@ -201,7 +200,6 @@
               <option value="sachet">Sachet</option>
             </select>
           </div>
-          <p class="field-hint">How you buy it. Optional.</p>
         </div>
         <div class="field-group" id="ing-pack-group" style="display:none;">
           <label for="ing-pack-size">Each one contains</label>
@@ -225,7 +223,7 @@
       </div>
       <div class="form-row">
         <div class="field-group">
-          <label for="ing-supplier">Supplier</label>
+          <label for="ing-supplier">Supplier (optional)</label>
           <div class="field-control"><input type="text" id="ing-supplier" placeholder="e.g. Golden Grain Traders"></div>
         </div>
         <div class="info-box solid" style="flex:1;">

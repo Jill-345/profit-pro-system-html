@@ -79,15 +79,27 @@
           </select>
         </div>
       </div>
+    </div>
+    <p class="field-hint" style="margin:6px 0 8px;font-weight:700;color:var(--color-bark);">Business hours</p>
+    <div class="form-row">
       <div class="field-group">
-        <label for="business-target-foodcost">Default target food cost %</label>
-        <div class="field-control"><input type="number" id="business-target-foodcost" min="1" max="95" placeholder="e.g. 30"></div>
+        <label for="business-day-from">Open from</label>
+        <div class="field-control"><select id="business-day-from"></select></div>
+      </div>
+      <div class="field-group">
+        <label for="business-day-to">Open until</label>
+        <div class="field-control"><select id="business-day-to"></select></div>
+      </div>
+      <div class="field-group">
+        <label for="business-time-open">Opening time</label>
+        <div class="field-control"><select id="business-time-open"></select></div>
+      </div>
+      <div class="field-group">
+        <label for="business-time-close">Closing time</label>
+        <div class="field-control"><select id="business-time-close"></select></div>
       </div>
     </div>
-    <div class="field-group">
-      <label for="business-hours">Business hours</label>
-      <div class="field-control"><input type="text" id="business-hours" placeholder="e.g. Mon–Sat, 6:00 AM – 7:00 PM"></div>
-    </div>
+    <p class="field-hint" id="business-hours-saved" style="margin:-6px 0 14px;"></p>
 
     <div class="btn-row" style="justify-content:flex-start;">
       <a class="btn-dark" href="admin.html">Manage accounts</a>
