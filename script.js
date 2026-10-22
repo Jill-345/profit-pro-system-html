@@ -2431,8 +2431,6 @@
     var role = getCurrentRole();
     var isStaff = role === "Staff";
     if (isStaff) {
-      var addIngBtn = document.getElementById("show-add-ingredient");
-      if (addIngBtn) addIngBtn.style.display = "none";
       var headRow = body.closest("table").querySelector("thead tr");
       if (headRow) headRow.innerHTML = "<th>Ingredient</th><th>Category</th><th>Unit</th><th>Stock Qty</th><th>Low Stock At</th><th>Last Updated</th>";
     }
@@ -3059,7 +3057,7 @@
     populateBreadItemSelect();
     updateBreadStockPreview();
 
-    if (role !== "Staff" && window.location.search.indexOf("add=1") !== -1) {
+    if (window.location.search.indexOf("add=1") !== -1) {
       document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });
       document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("active"); });
       document.querySelector('[data-tab="tab-raw-ingredients"]').classList.add("active");
@@ -3104,19 +3102,23 @@
 
     async function renderActivity() {
       var logBody = document.getElementById("activity-log-body");
-      var result = await supabaseClient
-        .from("activity_log")
-        .select("action, created_at, profiles(full_name)")
-        .order("created_at", { ascending: false })
-        .limit(50);
-      var entries = result.data || [];
+      var moreBtn = document.getElementById("activity-show-more");
+      var PREVIEW_COUNT = 7;
+      var entries = await fetchAllPages(function () {
+        return supabaseClient
+          .from("activity_log")
+          .select("action, created_at, profiles(full_name)")
+          .order("created_at", { ascending: false });
+      });
       logBody.innerHTML = "";
+      if (moreBtn) moreBtn.hidden = true;
       if (!entries.length) {
         logBody.innerHTML = '<tr><td colspan="4" class="empty-note">No activity yet.</td></tr>';
         return;
       }
-      entries.forEach(function (entry) {
+      entries.forEach(function (entry, idx) {
         var tr = document.createElement("tr");
+        if (idx >= PREVIEW_COUNT) tr.hidden = true;
         var when = new Date(entry.created_at);
         var dateLabel = when.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
         var timeLabel = when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -3124,6 +3126,19 @@
         tr.innerHTML = "<td>" + dateLabel + "</td><td>" + timeLabel + "</td><td>" + userName + "</td><td>" + entry.action + "</td>";
         logBody.appendChild(tr);
       });
+
+      if (moreBtn && entries.length > PREVIEW_COUNT) {
+        var expanded = false;
+        moreBtn.hidden = false;
+        moreBtn.textContent = "Show more (" + (entries.length - PREVIEW_COUNT) + " more)";
+        moreBtn.onclick = function () {
+          expanded = !expanded;
+          Array.prototype.forEach.call(logBody.children, function (row, i) {
+            if (i >= PREVIEW_COUNT) row.hidden = !expanded;
+          });
+          moreBtn.textContent = expanded ? "Show less" : "Show more (" + (entries.length - PREVIEW_COUNT) + " more)";
+        };
+      }
     }
 
     renderAccounts();
@@ -3536,44 +3551,6 @@
     load();
   }
 
-  /* ---- Business hours: day and time drop-downs saved as one line, e.g. "Mon\u2013Sat, 6:00 AM \u2013 7:00 PM" ---- */
-  var HOURS_DAYS = [["Mon", "Monday"], ["Tue", "Tuesday"], ["Wed", "Wednesday"], ["Thu", "Thursday"], ["Fri", "Friday"], ["Sat", "Saturday"], ["Sun", "Sunday"]];
-  function hoursTimeLabel(minutes) {
-    var h = Math.floor(minutes / 60), m = minutes % 60;
-    return ((h % 12) || 12) + ":" + (m < 10 ? "0" : "") + m + " " + (h < 12 ? "AM" : "PM");
-  }
-  function fillBusinessHourOptions() {
-    var opts = function (items, first) {
-      return '<option value="">' + first + "</option>" + items.map(function (it) { return '<option value="' + it[0] + '">' + it[1] + "</option>"; }).join("");
-    };
-    var times = [];
-    for (var t = 0; t < 24 * 60; t += 30) times.push([hoursTimeLabel(t), hoursTimeLabel(t)]);
-    document.getElementById("business-day-from").innerHTML = opts(HOURS_DAYS, "Select day");
-    document.getElementById("business-day-to").innerHTML = opts(HOURS_DAYS, "Select day");
-    document.getElementById("business-time-open").innerHTML = opts(times, "Select time");
-    document.getElementById("business-time-close").innerHTML = opts(times, "Select time");
-  }
-  // "Mon\u2013Sat, 6:00 AM \u2013 7:00 PM" (or an older "Mon-Fri") -> the four drop-downs
-  function setBusinessHoursFromText(text) {
-    var dayRe = "(Mon|Tue|Wed|Thu|Fri|Sat|Sun)", timeRe = "(\\d{1,2}:\\d{2} [AP]M)";
-    var m = new RegExp("^\\s*" + dayRe + "(?:\\s*[\\u2013-]\\s*" + dayRe + ")?(?:\\s*,\\s*" + timeRe + "\\s*[\\u2013-]\\s*" + timeRe + ")?\\s*$", "i").exec(text || "");
-    var set = function (id, v) { document.getElementById(id).value = v || ""; };
-    var cap = function (d) { return d ? d.charAt(0).toUpperCase() + d.slice(1).toLowerCase() : ""; };
-    if (!m) { set("business-day-from", ""); set("business-day-to", ""); set("business-time-open", ""); set("business-time-close", ""); return; }
-    set("business-day-from", cap(m[1]));
-    set("business-day-to", cap(m[2] || m[1]));
-    set("business-time-open", m[3] ? m[3].toUpperCase() : "");
-    set("business-time-close", m[4] ? m[4].toUpperCase() : "");
-  }
-  // The four drop-downs -> one line of text ("" when nothing is chosen). Returns null if it is only half filled in.
-  function readBusinessHours() {
-    var from = document.getElementById("business-day-from").value, to = document.getElementById("business-day-to").value;
-    var open = document.getElementById("business-time-open").value, close = document.getElementById("business-time-close").value;
-    if (!from && !to && !open && !close) return "";
-    if (!from || !to || !open || !close) return null;
-    return (from === to ? from : from + "\u2013" + to) + ", " + open + " \u2013 " + close;
-  }
-
   function initProfilePage() {
     var firstNameInput = document.getElementById("profile-first-name");
     if (!firstNameInput) return;
@@ -3582,13 +3559,6 @@
 
     var session = getSession();
     if (!session) { window.location.href = "index.html"; return; }
-
-    var businessSection = document.getElementById("business-settings-section");
-    var actionsRow = document.getElementById("profile-actions");
-    if (session.role !== "Super Admin") {
-      if (businessSection) businessSection.style.display = "none";
-      if (actionsRow) actionsRow.style.display = "none";
-    }
 
     async function load() {
       var profileResult = await supabaseClient.from("profiles").select("*").eq("email", session.email).maybeSingle();
@@ -3600,56 +3570,6 @@
       lastNameInput.value = myName.last;
       document.getElementById("profile-email").value = session.email;
       document.getElementById("profile-role").value = profile ? profile.role : "Staff";
-
-      if (session.role === "Super Admin") {
-        var settingsResult = await supabaseClient.from("business_settings").select("*").eq("id", 1).maybeSingle();
-        var settings = settingsResult.data || {};
-        document.getElementById("business-name").value = settings.bakery_name || "DRR Bakery";
-        document.getElementById("business-currency").value = settings.currency || "PHP";
-        fillBusinessHourOptions();
-        setBusinessHoursFromText(settings.business_hours || "");
-        var savedNote = document.getElementById("business-hours-saved");
-        if (savedNote) savedNote.textContent = settings.business_hours ? "Saved hours: " + settings.business_hours : "No business hours saved yet.";
-      }
-    }
-
-    var saveBtn = document.getElementById("save-profile-btn");
-    if (saveBtn) {
-      saveBtn.addEventListener("click", async function () {
-        if (session.role !== "Super Admin") return;
-
-        var name = document.getElementById("business-name").value.trim();
-        if (!name) { toast("Please enter the bakery name."); return; }
-        var hours = readBusinessHours();
-        if (hours === null) { toast("Please choose both days and both times for the business hours, or leave all four empty."); return; }
-        if (hours && document.getElementById("business-time-open").value === document.getElementById("business-time-close").value) { toast("The opening and closing time cannot be the same."); return; }
-        var fields = {
-          bakery_name: name,
-          currency: document.getElementById("business-currency").value,
-          business_hours: hours
-        };
-
-        saveBtn.disabled = true;
-        // Update the settings row; if it does not exist yet (a new database), create it.
-        var result = await supabaseClient.from("business_settings").update(fields).eq("id", 1).select();
-        if (!result.error && (!result.data || !result.data.length)) {
-          result = await supabaseClient.from("business_settings").insert(Object.assign({ id: 1, target_food_cost_pct: 30 }, fields)).select();
-        }
-        saveBtn.disabled = false;
-
-        if (result.error) {
-          toast("Couldn't save settings: " + result.error.message);
-          return;
-        }
-        if (!result.data || !result.data.length) {
-          toast("Nothing was saved because the database did not allow the change. Check the permissions of the business_settings table.");
-          return;
-        }
-        await logActivitySupa("Updated business settings");
-        var savedNote2 = document.getElementById("business-hours-saved");
-        if (savedNote2) savedNote2.textContent = hours ? "Saved hours: " + hours : "No business hours saved yet.";
-        toast("Changes saved.");
-      });
     }
 
     load();
