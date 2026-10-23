@@ -1,3 +1,4 @@
+// Load the fonts of the website
 (function () {
   if (document.getElementById("drr-fonts")) return;
   var l = document.createElement("link");
@@ -6,6 +7,7 @@
   document.head.appendChild(l);
 })();
 
+// Connect to Supabase if it is not connected yet
 (function () {
   if (typeof supabaseClient !== "undefined") return;
   var url = "YOUR_SUPABASE_URL";
@@ -21,17 +23,22 @@
   window.supabaseClient = window.supabase.createClient(url, key);
 })();
 
+// Main code of the system
 (function () {
   "use strict";
 
+  // Names used to save data in the browser
   var USERS_KEY = "drrBakeryUsers";
   var REMEMBER_KEY = "drrBakeryRememberedEmail";
   var SESSION_KEY = "drrBakerySession";
 
+  // Contact number shown in the footer
   var CONTACT_PHONE = "+63 918 485 1922";
 
+  // The roles in the system
   var ROLES = ["Super Admin", "Admin", "Staff"];
 
+  // Which roles can open which pages
   var ROUTE_ROLES = {
     "admin.html": ["Super Admin"],
     "invite-account.html": ["Super Admin"],
@@ -41,15 +48,18 @@
     "recipe-form.html": ["Admin", "Super Admin"]
   };
 
+  // Get the saved users
   function getUsers() {
     try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; }
     catch (e) { return []; }
   }
 
+  // Save the users
   function saveUsers(users) {
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
   }
 
+  // Find a user by email
   function findUserByEmail(email) {
     var users = getUsers();
     var target = email.trim().toLowerCase();
@@ -59,22 +69,25 @@
     return null;
   }
 
+  // Split a full name into first, middle and last name
   function splitFullName(full) {
     var p = String(full || "").trim().split(/\s+/).filter(Boolean);
     if (p.length <= 1) return { first: p[0] || "", middle: "", last: "" };
     return { first: p[0], middle: p.slice(1, -1).join(" "), last: p[p.length - 1] };
   }
+  // Get the first, middle and last name of a record
   function nameOf(rec) {
     if (rec && (rec.first_name || rec.last_name)) {
       return { first: rec.first_name || "", middle: rec.middle_name || "", last: rec.last_name || "" };
     }
     return splitFullName(rec && rec.full_name);
   }
+  // Join the name parts into one full name
   function joinName(first, middle, last) {
     return [first, middle, last].map(function (x) { return String(x || "").trim(); }).filter(Boolean).join(" ");
   }
 
-  // "First M. Last" (middle name shortened to its initial), e.g. for the PDF "Prepared by" line
+  // Show the name as Last, First Middle
   function formalName(sess) {
     if (!sess) return "";
     var n = sess.nameParts || splitFullName(sess.fullName || sess.firstName);
@@ -82,25 +95,30 @@
     return joinName(n.first, mid, n.last) || sess.fullName || sess.firstName || "";
   }
 
+  // Get the signed-in user
   function getSession() {
     try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); }
     catch (e) { return null; }
   }
 
+  // Get the role of the signed-in user
   function getCurrentRole() {
     var s = getSession();
     return s && s.role ? s.role : null;
   }
 
+  // Get the name of the signed-in user
   function currentUserName() {
     var s = getSession();
     return s && s.firstName ? s.firstName : "Guest";
   }
 
+  // Check if the email looks correct
   function isValidEmail(value) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
   }
 
+  // Check if the password is strong enough
   function isValidPassword(value) {
     var hasLower = /[a-z]/.test(value);
     var hasUpper = /[A-Z]/.test(value);
@@ -109,6 +127,7 @@
     return value.length >= 8 && hasLower && hasUpper && hasNumber && hasSymbol;
   }
 
+  // Show an error message under a field
   function setFieldError(inputId, message) {
     var input = document.getElementById(inputId);
     if (!input) return;
@@ -121,6 +140,7 @@
     }
   }
 
+  // Remove the error message of a field
   function clearFieldError(inputId) {
     var input = document.getElementById(inputId);
     if (!input) return;
@@ -133,6 +153,7 @@
     }
   }
 
+  // Remove all error messages in a form
   function clearAllFieldErrors(form) {
     form.querySelectorAll(".field-error").forEach(function (el) {
       el.classList.remove("is-visible");
@@ -143,6 +164,7 @@
     });
   }
 
+  // Show an alert message
   function showAlert(alertEl, type, message) {
     if (!alertEl) return;
     alertEl.textContent = message;
@@ -151,11 +173,13 @@
     alertEl.classList.add("is-visible");
   }
 
+  // Hide the alert message
   function hideAlert(alertEl) {
     if (!alertEl) return;
     alertEl.classList.remove("is-visible");
   }
 
+  // Set up the show/hide password buttons
   function initPasswordToggles() {
     document.querySelectorAll(".password-toggle").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -168,6 +192,7 @@
     });
   }
 
+  // Set up the sign up page
   function initSignupForm() {
     var form = document.getElementById("signup-form");
     if (!form) return;
@@ -184,6 +209,7 @@
     var setupMode = params.get("setup") === "1";
     var confirmedSession = null;
 
+    // Show a message when the page cannot be used
     function showBlocked(message, heading) {
       if (formWrap) formWrap.style.display = "none";
       if (subheadingEl) subheadingEl.style.display = "none";
@@ -194,6 +220,7 @@
       if (headingEl) headingEl.textContent = heading;
     }
 
+    // Create the first account
     async function setup() {
       if (setupMode) {
         var sess = await getSessionResilient();
@@ -325,6 +352,7 @@
     });
   }
 
+  // Set up the login page
   function initLoginForm() {
     var form = document.getElementById("login-form");
     if (!form) return;
@@ -402,6 +430,7 @@
     });
   }
 
+  // Set up the forgot password page
   function initForgotPasswordForm() {
     var form = document.getElementById("forgot-password-form");
     if (!form) return;
@@ -433,6 +462,7 @@
     });
   }
 
+  // Set up the reset password page
   function initResetPasswordForm() {
     var form = document.getElementById("reset-password-form");
     if (!form) return;
@@ -443,6 +473,7 @@
     var submitBtn = document.getElementById("reset-submit-btn");
     var sessionReady = false;
 
+    // Show a message when the reset link is not valid
     function showInvalidLink() {
       if (headingEl) headingEl.textContent = "Link Invalid or Expired";
       if (subheadingEl) subheadingEl.textContent = "This reset link didn't work — it may have already been used, or it's expired. Request a new one from the login page.";
@@ -503,10 +534,12 @@
     });
   }
 
+  // Get today's date as text
   function todayLabel() {
     return new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
   }
 
+  // Get the id of the signed-in user
   function currentUserId() {
     var s = getSession();
     return s && s.id ? s.id : null;
@@ -518,6 +551,7 @@
   window.addEventListener("pageshow", function () { pageIsUnloading = false; });
   window.addEventListener("unhandledrejection", function (e) { if (pageIsUnloading) e.preventDefault(); });
 
+  // Show a small message at the bottom
   function toast(msg) {
     if (pageIsUnloading) return;
     var el = document.getElementById("app-toast");
@@ -528,23 +562,28 @@
     toast._t = setTimeout(function () { el.classList.remove("is-visible"); }, 2400);
   }
 
+  // Make text safe to use inside an HTML attribute
   function escAttr(value) {
     return String(value == null ? "" : value)
       .replace(/&/g, "&amp;").replace(/"/g, "&quot;")
       .replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
+  // Name used to save a message for the next page
   var FLASH_KEY = "drrBakeryFlash";
 
+  // Save an action in the activity log
   async function logActivitySupa(action) {
     var userId = currentUserId();
     await supabaseClient.from("activity_log").insert({ user_id: userId, action: action });
   }
 
+  // Save a message to show on the next page
   function setFlash(msg) {
     sessionStorage.setItem(FLASH_KEY, msg);
   }
 
+  // Show the saved message and clear it
   function consumeFlash() {
     var msg = sessionStorage.getItem(FLASH_KEY);
     if (msg) {
@@ -553,6 +592,7 @@
     }
   }
 
+  // Ingredient categories
   var INGREDIENT_CATEGORIES = [
     "Flour & Grains",
     "Sugars & Sweeteners",
@@ -564,6 +604,7 @@
     "Add-ins & Toppings"
   ];
 
+  // Build the category drop-down options
   function categoryOptionsHtml(selected, withPlaceholder) {
     var html = withPlaceholder ? '<option value="" disabled selected hidden>Select category</option>' : "";
     var list = INGREDIENT_CATEGORIES.slice();
@@ -574,26 +615,33 @@
     return html;
   }
 
+  // Units and how to convert them
   var UNIT_FAMILY = { g: ["w", 1], kg: ["w", 1000], ml: ["v", 1], L: ["v", 1000], pc: ["c", 1] };
 
+  // Get the number to convert one unit to another
   function unitFactor(from, to) {
     var a = UNIT_FAMILY[from], b = UNIT_FAMILY[to];
     if (!a || !b || a[0] !== b[0]) return null;
     return a[1] / b[1];
   }
 
+  // Build the unit drop-down options
   function unitOptionsHtml(selected) {
     return ["g", "kg", "ml", "L", "pc"].map(function (u) {
       return '<option value="' + u + '"' + (u === selected ? " selected" : "") + ">" + u + "</option>";
     }).join("");
   }
 
+  // Round to 2 decimal places
   function r2(n) { return Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100; }
+  // Show a number as pesos
   function peso(n) {
     var v = r2(n);
     return (v < 0 ? "-" : "") + "\u20B1" + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
+  // Show a number as a percent
   function pct2(n) { return r2(n).toFixed(2) + "%"; }
+  // Show the cost per unit
   function fmtCostPer(cost, unit) {
     var c = Number(cost) || 0, u = unit;
     if (unit === "g") { c *= 1000; u = "kg"; }
@@ -601,15 +649,17 @@
     return peso(c) + " / " + u;
   }
 
+  // Round to 4 decimal places
   function round4(n) { return Math.round((Number(n) || 0) * 10000) / 10000; }
 
+  // Show a quantity
   function fmtQty(n) { return Number(Number(n).toFixed(2)).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
 
-  // Up to 4 decimals, no trailing zeros (0.0075 stays 0.0075; 1.275 stays 1.275).
+  // Show a whole number
   function fmtWhole(n) { return Math.round(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+  // Show a quantity with up to 4 decimals
   function fmtQty4(n) { return Number(Number(n).toFixed(4)).toLocaleString(undefined, { maximumFractionDigits: 4 }); }
-  // "1,275 g (1.275 kg)" - the price is shown per kg / per L, so show the quantity that way too and
-  // quantity x price can be worked out on a calculator.
+  // Show a quantity in grams and kilograms (or ml and liters)
   function qtyBoth(n, unit) {
     var q = Number(n) || 0;
     if (unit === "g") return fmtQty(q) + " g (" + fmtQty4(q / 1000) + " kg)";
@@ -617,17 +667,19 @@
     return fmtQty(q) + " " + unit;
   }
 
-  // Ingredients counted in pieces (eggs...) can't be used in fractions: round UP to whole pieces.
+  // Round pieces up to a whole number
   function usedAmount(qty, unit) {
     var q = Number(qty) || 0;
     return unit === "pc" ? Math.ceil(q - 1e-9) : q;
   }
 
+  // Show the cost of one unit
   function fmtUnitCost(n) {
     var v = Number(n) || 0;
     return v >= 1 ? v.toFixed(2) : v.toFixed(4);
   }
 
+  // Update the recipe costs when an ingredient price changes
   async function recalcRecipesForIngredient(ingredientId, newCostPerUnit) {
     try {
       var linesRes = await supabaseClient.from("recipe_ingredients").select("id, recipe_id, quantity").eq("ingredient_id", ingredientId);
@@ -652,16 +704,19 @@
     } catch (e) { }
   }
 
+  // Get all raw ingredients
   async function fetchIngredients() {
     var result = await supabaseClient.from("ingredients").select("*").order("name");
     return result.data || [];
   }
 
+  // Add a new raw ingredient
   async function insertIngredient(fields) {
     fields.updated_by = currentUserId();
     return await supabaseClient.from("ingredients").insert(fields).select().single();
   }
 
+  // Update a raw ingredient
   async function updateIngredient(id, fields) {
     fields.updated_by = currentUserId();
     fields.updated_at = new Date().toISOString();
@@ -669,6 +724,7 @@
   }
 
   var recipeSyncPromise = null;
+  // Update the cost of all recipes
   async function syncAllRecipeCosts() {
     try {
       var ingRes = await supabaseClient.from("ingredients").select("id, cost_per_unit");
@@ -700,18 +756,21 @@
       }
     } catch (e) { }
   }
+  // Update the recipe costs only once
   function ensureRecipeCostsSynced() {
     if (getCurrentRole() === "Staff") return Promise.resolve();
     if (!recipeSyncPromise) recipeSyncPromise = syncAllRecipeCosts();
     return recipeSyncPromise;
   }
 
+  // Get all recipes
   async function fetchRecipes() {
     await ensureRecipeCostsSynced();
     var result = await supabaseClient.from("recipes").select("*").order("name");
     return result.data || [];
   }
 
+  // Get one recipe with its ingredients
   async function fetchRecipeWithIngredients(id) {
     await ensureRecipeCostsSynced();
     var recipeResult = await supabaseClient.from("recipes").select("*").eq("id", id).maybeSingle();
@@ -735,6 +794,7 @@
     return { recipe: recipeResult.data, lineItems: lines };
   }
 
+  // Save a recipe and its ingredients
   async function saveRecipe(recipeFields, lineItems, existingId) {
     var payload = {
       name: recipeFields.name,
@@ -779,6 +839,7 @@
     return { data: { id: recipeId } };
   }
 
+  // Get all bread batches
   async function fetchBreadInventory() {
     return await fetchAllPages(function () {
       return supabaseClient
@@ -789,6 +850,7 @@
     });
   }
 
+  // Add a new bread batch
   async function insertBreadBatch(recipeId, qtyBaked, consumedIngredients, batchName) {
     var batchResult = await supabaseClient.from("bread_inventory").insert({
       recipe_id: recipeId,
@@ -815,12 +877,14 @@
     return batchResult;
   }
 
+  // Update how many pieces of a batch were sold
   async function updateBreadBatchSold(batchId, newQtySold) {
     return await supabaseClient.from("bread_inventory")
       .update({ quantity_sold: newQtySold, updated_at: new Date().toISOString() })
       .eq("id", batchId);
   }
 
+  // Get the start date of the chosen period
   function dateRangeStartISO(rangeKey) {
     var now = new Date();
     var start = new Date(now);
@@ -844,6 +908,7 @@
     return start.toISOString();
   }
 
+  // Get the name and length of the chosen period
   function periodInfo(key) {
     var now = new Date();
     var startISO = dateRangeStartISO(key);
@@ -856,7 +921,7 @@
     return { name: name, range: range, label: name + " (" + range + ")" };
   }
 
-  // Supabase returns at most 1,000 rows per request, so totals must be read page by page or they come out too low.
+  // Get all rows, one page at a time
   async function fetchAllPages(makeQuery) {
     var rows = [], from = 0, page = 1000;
     for (var n = 0; n < 500; n++) {
@@ -869,6 +934,7 @@
     return rows;
   }
 
+  // Get the sales of the chosen period
   async function fetchSales(rangeKey) {
     var startISO = dateRangeStartISO(rangeKey || "today");
     var rows = [], from = 0, page = 1000;
@@ -885,6 +951,7 @@
     return rows;
   }
 
+  // Save a new sale
   async function insertSale(recipeId, breadInventoryId, qty, unitPrice, foodCostPerUnit) {
     unitPrice = r2(unitPrice);
     var totalAmount = r2(qty * unitPrice);
@@ -902,10 +969,12 @@
     }).select().single();
   }
 
+  // Get the file name of the current page
   function currentPageFile() {
     return window.location.pathname.split("/").pop() || "dashboard.html";
   }
 
+  // Show only the menu links the role can use
   function filterNavForRole(role) {
     var navLinks = document.querySelectorAll(".app-nav a");
     if (!navLinks.length) return;
@@ -927,6 +996,7 @@
     });
   }
 
+  // Stop clicks on the menu while the page is changing
   function initNavClickGuard() {
     var navigating = false;
     var links = document.querySelectorAll(".app-nav a");
@@ -948,6 +1018,7 @@
     window.addEventListener("pageshow", function (e) { if (e.persisted) navigating = false; });
   }
 
+  // Get the session, trying again if it fails
   async function getSessionResilient() {
     var attempts = 4;
     for (var i = 0; i < attempts; i++) {
@@ -960,6 +1031,7 @@
     return null;
   }
 
+  // Set up the header, menu and profile button
   async function initAppChrome() {
     var avatarBtn = document.getElementById("avatar-btn");
     if (!avatarBtn) return;
@@ -1080,12 +1152,13 @@
     return true;
   }
 
-
+  // Get the data the Bakery Assistant needs
   async function fetchAiChatContext() {
     var result = await supabaseClient.rpc("get_ai_chat_context");
     return result.data || { role: getCurrentRole(), is_privileged: false, recipes: [], ingredients: [], sales: [], low_stock: [], target_food_cost_pct: 30 };
   }
 
+  // Study the data to prepare the assistant's answers
   function analyzeContext(ctx) {
     var isPrivileged = !!ctx.is_privileged;
 
@@ -1137,47 +1210,60 @@
     };
   }
 
-  /* ---- Language: the assistant answers in Tagalog when the user writes in Tagalog (or Taglish) ---- */
   var chatLang = "en";
+  // Common Filipino words used to detect the language
   var TAGALOG_WORDS = /\b(ano|anong|ang|ng|mga|sa|ako|ko|mo|namin|natin|ninyo|aming|amin|akin|po|opo|ba|ilan|magkano|pwede|puwede|paano|pano|bakit|alin|sino|saan|kailan|meron|mayroon|wala|kulang|ubos|maubos|paubos|benta|nabenta|nabebenta|binebenta|tinda|presyo|tubo|kita|kumita|gastos|sangkap|harina|asukal|itlog|mantikilya|tinapay|gusto|kailangan|yung|yong|ito|iyan|iyon|hindi|di|oo|sige|salamat|magandang|kumusta|kamusta|musta|paalam|mas|pinaka|pinakamabenta|marami|konti|kaunti|natitira|bumibili|dapat|dagdagan|bawasan|itigil|tigilan|alisin|unahin|tulong|resipe|magluto|gumawa|tama|lang|naman|na|pa|din|rin|nga|talaga|mahal|mura|bilhin|bumili|araw|ngayon|buod|mabenta|baka)\b/i;
+  // Check if the question is English or Filipino
   function detectChatLang(q) { return TAGALOG_WORDS.test(q || "") ? "tl" : "en"; }
+  // Pick the English or Filipino text
   function T(en, tl) { return chatLang === "tl" ? tl : en; }
 
+  // Reply when the user is not allowed to see this
   function restrictedReply() {
     return T("Sorry, I can't share prices or profit details with this account. Only Admin and Super Admin accounts can see them. I can still help you with stock levels and your best seller.",
              "Pasensya na, hindi ko maibabahagi ang presyo o tubo sa account na ito. Admin at Super Admin lang ang makakakita nito. Matutulungan pa rin kita sa stock at sa pinakamabentang tinapay.");
   }
 
-  /* ---- Small helpers so the replies read like a person wrote them ---- */
+  // Show a percent in the chat
   function chatPct(n) { return r2(n).toFixed(2) + "%"; }
-  function chatList(names) {          // ["A"] -> "A", ["A","B"] -> "A and B", ["A","B","C"] -> "A, B, and C"
+  // Join names into one sentence
+  function chatList(names) {
     var and = T("and", "at");
     if (names.length <= 1) return names.join("");
     if (names.length === 2) return names[0] + " " + and + " " + names[1];
     return names.slice(0, -1).join(", ") + (chatLang === "tl" ? " at " : ", and ") + names[names.length - 1];
   }
-  function chatQty(n, unit) {         // 14506.66 g -> "14.51 kg", 8 pc -> "8 pc"
+  // Show a quantity in the chat
+  function chatQty(n, unit) {
     var q = Number(n) || 0;
     if (unit === "g" && q >= 1000) return fmtQty(q / 1000) + " kg";
     if (unit === "ml" && q >= 1000) return fmtQty(q / 1000) + " L";
     return fmtQty(q) + " " + unit;
   }
+  // Show the number of pieces in the chat
   function chatPieces(n) { return chatLang === "tl" ? n + " piraso" : n + (n === 1 ? " piece" : " pieces"); }
+  // Make a list for the chat
   function chatBullets(lines) { return lines.map(function (l) { return "• " + l; }).join("\n"); }
-  function chatNames(list, max) {     // names, but no more than `max`, then "and 2 more"
+  // Join a few names for the chat
+  function chatNames(list, max) {
     var names = list.map(function (r) { return r.name; });
     if (names.length <= max) return chatList(names);
     var more = names.length - max;
     return names.slice(0, max).join(", ") + T(", and " + more + " more", " at " + more + " pa");
   }
+  // Write the text for breads that did not sell
   function notSoldText(list, max) {
     return T(chatNames(list, max) + " " + (list.length === 1 ? "has" : "have") + " not been sold yet.",
              "Hindi pa nabebenta ang " + chatNames(list, max) + ".");
   }
+  // Write the text for breads to keep
   function keepText(pct) { return T("you keep " + chatPct(pct) + " of its price", chatPct(pct) + " ng presyo ang naiuuwi mo"); }
+  // Write the text for breads to keep only
   function keepOnlyText(pct) { return T("you keep only " + chatPct(pct) + " of its price", chatPct(pct) + " lang ng presyo ang naiuuwi mo"); }
+  // Give a tip to lower the cost
   function cheaperTip() { return T("Try raising the price a little, or use cheaper ingredients.", "Subukang itaas nang kaunti ang presyo, o gumamit ng mas murang sangkap."); }
 
+  // Answer: how to increase profit
   function recIncreaseProfit(a) {
     if (!a.margins.length) return T("I can't give advice on profit yet because your recipes don't have selling prices. Please add a selling price to each recipe first.",
       "Hindi pa kita mabibigyan ng payo tungkol sa tubo dahil walang presyo ang mga recipe mo. Maglagay muna ng presyo sa bawat recipe.");
@@ -1198,6 +1284,7 @@
     return T("Here are some ways to earn more profit:\n", "Narito ang ilang paraan para lumaki ang tubo mo:\n") + chatBullets(tips);
   }
 
+  // Answer: which bread has the best margin
   function recBestMargin(a) {
     if (!a.margins.length) return T("I can't tell yet because none of your recipes has both a cost and a selling price.", "Hindi ko pa masasabi dahil walang recipe na may gastos at presyo.");
     var best = a.margins[0];
@@ -1205,6 +1292,7 @@
       best.name + " ang pinakamalaki ang tubo. " + keepText(best.margin) + ": " + peso(best.price - best.cost) + " sa bawat " + peso(best.price) + " na piraso. Magandang i-promote ang tinapay na ito.");
   }
 
+  // Answer: which bread has the lowest margin
   function recWorstMargin(a) {
     if (!a.margins.length) return T("I can't tell yet because none of your recipes has both a cost and a selling price.", "Hindi ko pa masasabi dahil walang recipe na may gastos at presyo.");
     var worst = a.margins[a.margins.length - 1];
@@ -1216,6 +1304,7 @@
       worst.name + " ang pinakamaliit ang tubo. " + peso(worst.cost) + " ang gastos sa paggawa at " + peso(worst.price) + " ang benta, kaya " + peso(worst.price - worst.cost) + " lang ang naiuuwi mo (" + chatPct(worst.margin) + " ng presyo). " + cheaperTip());
   }
 
+  // Answer: how to reduce costs
   function recReduceCosts(a) {
     if (!a.highCostIngredients.length) return T("No ingredient has gone up by more than 5% since you first added it, so nothing needs your attention right now.",
       "Walang sangkap na tumaas nang higit sa 5% mula nang unang ilagay, kaya walang kailangang aksyunan ngayon.");
@@ -1226,6 +1315,7 @@
         "\nPuwede kang humingi ng mas magandang presyo sa supplier, o tingnan kung kaya mong bawasan nang kaunti ang gamit nito sa mga recipe.");
   }
 
+  // Answer: how to improve the prices
   function recImprovePricing(a) {
     if (!a.margins.length) return T("I can't check your prices yet because none of your recipes has both a cost and a selling price.", "Hindi ko pa matitingnan ang presyo mo dahil walang recipe na may gastos at presyo.");
     var over = a.margins.filter(function (m) { return m.price > 0 && (m.cost / m.price) * 100 > a.targetPct + 5; });
@@ -1239,6 +1329,7 @@
       T("\nRaise their prices a little, or lower the cost of their ingredients.", "\nItaas nang kaunti ang presyo nila, o bawasan ang gastos sa sangkap.");
   }
 
+  // Answer: which breads are not selling well
   function recNotPerforming(a) {
     var msgs = [];
     if (a.unsold.length) msgs.push(notSoldText(a.unsold, 3));
@@ -1253,6 +1344,7 @@
     return msgs.join(" ") + (a.isPrivileged ? T("\nYou could promote them, bake a smaller batch, or check their prices.", "\nPuwede mo silang i-promote, magluto ng mas kaunti, o tingnan ang presyo nila.") : "");
   }
 
+  // Answer: which breads to remove
   function recRemoveProducts(a) {
     if (!a.isPrivileged) return null;
     var smallProfit = a.margins.filter(function (m) { return r2(m.margin) < 25; });
@@ -1267,6 +1359,7 @@
       T("\nBefore you stop making any of them, try changing the price or baking fewer.", "\nBago mo sila itigil, subukan munang baguhin ang presyo o magluto ng mas kaunti.");
   }
 
+  // Answer: which breads to focus on
   function recPrioritize(a) {
     var lines = [];
     if (a.topSellerByQty) lines.push(T("Your top seller is " + a.topSellerByQty.name + " (" + chatPieces(a.topSellerByQty.qty) + " sold).",
@@ -1282,8 +1375,8 @@
     return T("Here is what I would focus on:\n", "Ito ang uunahin ko:\n") + chatBullets(lines) + note;
   }
 
-  /* ---- Greetings, quick summary and the topic menu (like a bank's chat assistant) ---- */
-  var chatIntroduced = false; // the full introduction is only given the first time
+  var chatIntroduced = false;
+  // Write the greeting of the assistant
   function chatGreetingLines(q, a) {
     var name = currentUserName();
     var h = new Date().getHours();
@@ -1316,6 +1409,7 @@
     return lines;
   }
 
+  // Answer: a quick summary of the bakery
   function chatSummary(a) {
     if (!a.hasAnyRecipes && !a.hasAnySales) return T("You don't have any recipes or sales yet. Once you add some, I'll be able to tell you how your bakery is doing.",
       "Wala ka pang recipe o benta. Kapag nagdagdag ka na, masasabi ko na kung kumusta ang bakery mo.");
@@ -1331,6 +1425,7 @@
     return T("Here is a quick look at your bakery:\n", "Narito ang mabilis na tingin sa bakery mo:\n") + chatBullets(facts);
   }
 
+  // Answer: prices and profit of the breads
   function recPricesProfit(a) {
     if (!a.margins.length) return T("I can't check prices and profit yet because none of your recipes has both a cost and a selling price.",
       "Hindi ko pa matitingnan ang presyo at tubo dahil walang recipe na may gastos at presyo.");
@@ -1347,7 +1442,7 @@
       T("\nAsk me \"How are my prices?\" if you want the details.", "\nTanungin mo ako ng \"Kumusta ang presyo ko?\" para sa detalye.");
   }
 
-  // The topic menu shown under the greeting and after each answer. `ask` is what the assistant understands.
+  // Get the list of breads for the chat menu
   function chatMenuItems(a) {
     var items = [
       { label: T("Quick look at my bakery", "Kumusta ang bakery ko?"), ask: "quick look" },
@@ -1362,12 +1457,12 @@
     return items;
   }
 
-  /* ---- Specific questions: "How many Spanish Bread did we sell?", "How much flour is left?" ---- */
   var GENERIC_NAME_WORDS = /^(bread|breads|tinapay|and|the|with|ng|sa|ang|mga)$/i;
+  // Find a bread or ingredient named in the question
   function findNamed(q, list) {
     var lower = q.toLowerCase();
     var exact = list.filter(function (x) { return x && x.name && lower.indexOf(String(x.name).toLowerCase()) !== -1; });
-    if (exact.length) {                       // the longest name wins, so "Pande Hopia" beats "Hopia"
+    if (exact.length) {
       var longest = Math.max.apply(null, exact.map(function (x) { return String(x.name).length; }));
       return exact.filter(function (x) { return String(x.name).length === longest; });
     }
@@ -1379,6 +1474,7 @@
     });
   }
 
+  // Answer a question about one bread
   function answerAboutBread(bread, q, a) {
     var name = bread.name;
     var qty = a.qtyByRecipe[name] || 0;
@@ -1407,6 +1503,7 @@
     return lines.join("\n");
   }
 
+  // Answer a question about one ingredient
   function answerAboutIngredient(ing, q, a) {
     var name = ing.name;
     var low = a.lowStock.filter(function (x) { return x.name === name; })[0];
@@ -1428,6 +1525,7 @@
       name + ": " + chatQty(stock, unit) + " ang natitira." + (low ? " Paubos na ito, kaya magandang mag-restock na." : ""));
   }
 
+  // Answer a question about a specific bread or ingredient
   function answerSpecific(a, q) {
     var breads = findNamed(q, (a.recipeNames || []).map(function (n) { return { name: n }; }));
     var ings = findNamed(q, a.ingredients || []);
@@ -1444,6 +1542,7 @@
     return reply;
   }
 
+  // Questions the assistant understands
   var INTENTS = [
     { pattern: /^(?!.*(profit|money|earn|price|pricing|cost|tubo|kita|presyo|gastos))(?=.*(\bbake\b|\bbaking\b|\brecipes? (for|of)\b|\bhow (do i|do you|to|can i) (make|cook|prepare)\b|\bingredients? (of|for|in)\b|\bprocedure\b|\bpaano (ako )?(mag-?bake|magluto|gumawa)\b|\bpano (mag-?bake|magluto|gumawa)\b|\bresipe\b|\bsangkap ng\b))/i, restricted: false, handler: function (a, q) {
       var found = findNamed(q, (a.recipeNames || []).map(function (n) { return { name: n }; }));
@@ -1522,9 +1621,10 @@
     { pattern: /profit|price|pricing|cost|revenue|expensive|tubo|kita|presyo|gastos|puhunan|mahal/i, restricted: true, handler: function (a) { return recImprovePricing(a); } }
   ];
 
+  // Find out what the user is asking and answer it
   function classifyAndAnswer(userText, a, keepLang) {
     var q = userText.trim();
-    if (!keepLang) chatLang = detectChatLang(q);   // a menu tap keeps the language the user already used
+    if (!keepLang) chatLang = detectChatLang(q);
     for (var i = 0; i < INTENTS.length; i++) {
       var intent = INTENTS[i];
       if (intent.pattern.test(q)) {
@@ -1541,6 +1641,7 @@
       T("You can also choose a topic from the menu below.", "Puwede ka ring pumili ng paksa sa menu sa ibaba.")], menu: true };
   }
 
+  // Set up the Bakery Assistant chat
   function initAiChatWidget() {
     if (document.getElementById("ai-chat-fab")) return;
 
@@ -1583,10 +1684,13 @@
     var hasGreeted = false;
     var lastContext = null;
 
+    // Get the current time as text
     function nowTime() { return new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); }
+    // Scroll the chat to the newest message
     function scrollDown() { messagesEl.scrollTop = messagesEl.scrollHeight; }
-    quickRepliesEl.style.display = "none"; // the topic menu now appears inside the conversation
+    quickRepliesEl.style.display = "none";
 
+    // Add a message to the chat
     function addMessage(text, who) {
       var msg = document.createElement("div");
       msg.className = "ai-chat-msg " + who;
@@ -1595,7 +1699,7 @@
       scrollDown();
     }
 
-    // Small line under a message, e.g. "Sent . 8:48 PM" or "Bakery Assistant . 8:48 PM".
+    // Add the sender and time under a message
     function addMeta(who) {
       var meta = document.createElement("div");
       meta.className = "ai-chat-meta " + who;
@@ -1604,6 +1708,7 @@
       scrollDown();
     }
 
+    // Show the typing dots
     function showTyping() {
       var typing = document.createElement("div");
       typing.className = "ai-chat-typing";
@@ -1613,16 +1718,18 @@
       scrollDown();
     }
 
+    // Hide the typing dots
     function hideTyping() {
       var typing = document.getElementById("ai-chat-typing-indicator");
       if (typing) typing.remove();
     }
 
+    // Remove the menu buttons from the chat
     function removeMenus() {
       messagesEl.querySelectorAll(".ai-chat-menu").forEach(function (m) { m.remove(); });
     }
 
-    // The list of topics (only the newest one stays on screen).
+    // Show the menu buttons in the chat
     function showMenu(a) {
       removeMenus();
       var menu = document.createElement("div");
@@ -1638,6 +1745,7 @@
       scrollDown();
     }
 
+    // Get the analysis of the data
     async function getAnalysis() {
       if (lastContext) return lastContext;
       var ctx = await fetchAiChatContext();
@@ -1645,6 +1753,7 @@
       return lastContext;
     }
 
+    // Reply to the user's message
     async function botReply(userText, keepLang) {
       showTyping();
       var a;
@@ -1657,7 +1766,7 @@
       }
       var reply = classifyAndAnswer(userText, a, keepLang);
       var lines, withMenu;
-      if (typeof reply === "string") {           // a normal answer: add "anything else?" and the menu
+      if (typeof reply === "string") {
         lines = [reply, T("Is there anything else I can help you with?", "May iba pa ba akong maitutulong sa iyo?")];
         withMenu = true;
       } else {
@@ -1673,7 +1782,7 @@
       }, pause);
     }
 
-    // `ask` lets a menu button show a friendly label while the assistant understands a simple question.
+    // Handle a message typed by the user
     function handleUserMessage(text, ask) {
       text = (text || "").trim();
       if (!text) return;
@@ -1689,6 +1798,7 @@
       if (e.key === "Enter") handleUserMessage(inputEl.value);
     });
 
+    // Open the chat panel
     async function openPanel() {
       panel.classList.add("is-open");
       inputEl.focus();
@@ -1723,6 +1833,7 @@
     });
   }
 
+  // Compute the average food cost percent
   function computeAverageFoodCostPct(recipes) {
     if (!recipes.length) return 0;
     var total = 0, count = 0;
@@ -1735,6 +1846,7 @@
     return count ? total / count : 0;
   }
 
+  // Count the ingredients whose price went up by 5% or more
   function computeIngredientAlerts(ingredients) {
     return ingredients.filter(function (i) {
       return i.baseline_cost_per_unit > 0 &&
@@ -1742,12 +1854,14 @@
     }).length;
   }
 
+  // Count the ingredients that are low on stock
   function computeLowStockCount(ingredients) {
     return ingredients.filter(function (i) {
       return i.low_stock_threshold != null && i.stock_qty <= i.low_stock_threshold;
     }).length;
   }
 
+  // Show the admin dashboard
   async function renderAdminDashboard() {
     var recipes = await fetchRecipes();
     var ingredients = await fetchIngredients();
@@ -1763,6 +1877,7 @@
     await renderTopBreadDonut();
   }
 
+  // Work out the numbers on the chart axis
   function axisScale(top, floorMax, ticks, startPow) {
     var need = Math.max(top || 0, floorMax || 0, 1);
     var mult = [1, 2, 5];
@@ -1775,6 +1890,7 @@
     var big = Math.pow(10, 12);
     return { step: big, max: big * ticks };
   }
+  // Show a peso amount on the chart axis
   function fmtAxisPeso(n) {
     if (!n) return "\u20B10";
     if (n >= 1000000) return "\u20B1" + +(n / 1000000).toFixed(1) + "M";
@@ -1782,6 +1898,7 @@
     return "\u20B1" + n;
   }
 
+  // Show the monthly sales chart
   async function renderMonthlySalesChart() {
     var body = document.getElementById("bar-chart-body");
     if (!body) return;
@@ -1808,6 +1925,7 @@
     var maxVal = dashScale.max;
     var showCurrent = true, showPast = true;
 
+    // Show the list on the page
     function render() {
       body.innerHTML = "";
       months.forEach(function (m, i) {
@@ -1861,6 +1979,7 @@
     render();
   }
 
+  // Show the top breads donut chart
   async function renderTopBreadDonut() {
     var svg = document.getElementById("donut-svg");
     if (!svg) return;
@@ -1899,13 +2018,14 @@
     var total = breadData.reduce(function (s, d) { return s + d.value; }, 0);
     var startAngle = -90;
 
+    // Turn an angle and radius into x and y points
     function polarToXY(r, angleDeg) {
       var rad = (angleDeg - 90) * Math.PI / 180;
       return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
     }
 
     breadData.forEach(function (d) {
-      var sweep = total > 0 ? Math.min(359.99, (d.value / total) * 360) : 0; // a full 360 degrees would draw nothing
+      var sweep = total > 0 ? Math.min(359.99, (d.value / total) * 360) : 0;
       var endAngle = startAngle + sweep;
       var largeArc = sweep > 180 ? 1 : 0;
       var p1 = polarToXY(rOuter, startAngle);
@@ -1940,6 +2060,7 @@
     });
   }
 
+  // Show the staff dashboard
   async function renderStaffDashboard() {
     var wrap = document.getElementById("staff-dashboard");
     var adminWrap = document.getElementById("admin-dashboard-sections");
@@ -1975,6 +2096,7 @@
     });
   }
 
+  // Set up the dashboard page
   async function initDashboardPage() {
     if (!document.getElementById("stat-recipes")) return;
 
@@ -1993,6 +2115,7 @@
     await renderAdminDashboard();
   }
 
+  // Set up the recipes list page
   async function initRecipesListPage() {
     var tbody = document.getElementById("recipes-list-body");
     if (!tbody) return;
@@ -2017,7 +2140,6 @@
       if (!rec) return;
       if (!confirm('Delete "' + rec.name + '"? This can\'t be undone.')) return;
 
-      // Remember the ingredient lines so they can be put back if the recipe itself can't be deleted.
       var linesRes = await supabaseClient.from("recipe_ingredients").select("*").eq("recipe_id", rec.id);
       if (linesRes.error) { toast("Couldn't delete: " + linesRes.error.message); return; }
       var savedLines = linesRes.data || [];
@@ -2045,6 +2167,7 @@
       toast(rec.name + " deleted.");
     });
 
+    // Show the list on the page
     function render() {
       var query = (searchInput.value || "").trim().toLowerCase();
       var rows = allRecipes.filter(function (r) {
@@ -2086,6 +2209,7 @@
     render();
   }
 
+  // Set up the add/edit recipe page
   async function initRecipeFormPage() {
     var body = document.getElementById("recipe-ingredients-body");
     if (!body) return;
@@ -2112,6 +2236,7 @@
     var targetFoodCostInput = document.getElementById("input-target-foodcost");
     var sellingPriceInput = document.getElementById("input-selling-price");
 
+    // Fill the ingredient drop-down
     function populateIngredientSelect() {
       ingredientSelect.innerHTML = "";
       if (!allIngredients.length) {
@@ -2128,17 +2253,17 @@
 
     var ingUnitSelect = document.getElementById("input-ing-unit");
     var pickHint = document.getElementById("ing-pick-hint");
+    // Update the ingredient picker
     function refreshPicker() {
       var ing = allIngredients.find(function (i) { return i.id === ingredientSelect.value; });
       if (!ing) { ingUnitSelect.innerHTML = ""; pickHint.textContent = ""; return; }
       var choices = (ing.unit === "g" || ing.unit === "kg") ? ["g", "kg"] : (ing.unit === "ml" || ing.unit === "L") ? ["ml", "L"] : [ing.unit];
-      // Recipes are written in g / ml, so that is what the box starts on even when the ingredient is stocked in kg / L.
       var startUnit = ing.unit === "kg" ? "g" : (ing.unit === "L" ? "ml" : ing.unit);
       ingUnitSelect.innerHTML = choices.map(function (u) { return '<option value="' + u + '"' + (u === startUnit ? " selected" : "") + ">" + u + "</option>"; }).join("");
       pickHint.textContent = "";
       updateLinePreview();
     }
-    // Live working: "1.275 kg x P60.80 / kg = P77.52" so a wrong unit is caught before the line is added.
+    // Update the preview of the ingredient being added
     function updateLinePreview() {
       var out = document.getElementById("ing-line-preview");
       if (!out) return;
@@ -2157,6 +2282,7 @@
     qtyInput.addEventListener("input", updateLinePreview);
     ingUnitSelect.addEventListener("change", updateLinePreview);
 
+    // Show the ingredients added to the recipe
     function renderIngredientRows() {
       var tbody = document.getElementById("recipe-ingredients-body");
       tbody.innerHTML = "";
@@ -2207,10 +2333,12 @@
       recompute();
     });
 
+    // Get the total cost of the batch
     function totalBatchCostRaw() {
       return lineItems.reduce(function (sum, i) { return sum + i.lineCost; }, 0);
     }
 
+    // Recompute the cost and price of the recipe
     function recompute() {
       var totalCost = totalBatchCostRaw() * scaleFactor;
       var baseBatch = parseFloat(baseBatchInput.value) || 0;
@@ -2229,6 +2357,7 @@
       return { totalCost: totalCost, baseTotalCost: totalBatchCostRaw(), costPerPiece: costPerPiece, suggested: suggested };
     }
 
+    // Show the loss check
     function renderLossCheck(costPerPiece, targetPct, suggested) {
       var tbody = document.getElementById("loss-check-body");
       var sellingPrice = parseFloat(sellingPriceInput.value) || suggested;
@@ -2324,6 +2453,7 @@
       setTimeout(function () { window.location.href = "dashboard.html"; }, 1000);
     });
 
+    // Load the recipe to edit
     async function loadForEdit() {
       var loaded = await fetchRecipeWithIngredients(editingId);
       if (!loaded) { toast("Recipe not found."); return; }
@@ -2347,6 +2477,7 @@
       recompute();
     }
 
+    // Fill in the default target food cost
     async function prefillDefaultTargetFoodCost() {
       if (editingId) return;
       var settingsResult = await supabaseClient.from("business_settings").select("target_food_cost_pct").eq("id", 1).maybeSingle();
@@ -2367,6 +2498,7 @@
     }
   }
 
+  // Set up the recipe details page
   async function initRecipeViewPage() {
     var body = document.getElementById("view-ingredients-body");
     if (!body) return;
@@ -2424,6 +2556,7 @@
     }
   }
 
+  // Set up the inventory page
   async function initInventoryPage() {
     var body = document.getElementById("ingredient-stock-body");
     if (!body) return;
@@ -2438,6 +2571,7 @@
     var ingredients = await fetchIngredients();
     var recipes = await fetchRecipes();
 
+    // Show the raw ingredients table
     function renderIngredientTable() {
       body.innerHTML = "";
       if (!ingredients.length) {
@@ -2515,6 +2649,7 @@
       });
     }
 
+    // Open or close the restock form of an ingredient
     function toggleRestockRow(id) {
       var ing = ingredients.find(function (i) { return i.id === id; });
       if (!ing) return;
@@ -2575,7 +2710,7 @@
             var addedStock = qty * conversion;
             var oldStock = Number(ing.stock_qty) || 0;
             var newStockQty = round4(oldStock + addedStock);
-            var newCostPerUnit = latestCostPerUnit; // the ingredient's price becomes what was just paid
+            var newCostPerUnit = latestCostPerUnit;
 
             var saveBtn = document.getElementById("restock-save-" + ing.id);
             saveBtn.disabled = true;
@@ -2604,6 +2739,7 @@
       });
     }
 
+    // Open or close the edit form of an ingredient
     function toggleEditRow(id) {
       var ing = ingredients.find(function (i) { return String(i.id) === String(id); });
       if (!ing) return;
@@ -2611,6 +2747,7 @@
       rows.forEach(function (tr) {
         if (tr.getAttribute("data-id") !== String(ing.id)) return;
 
+        // Build one form field
         function field(label, inputId, type, value, extra) {
           return '<div class="field-group" style="margin-bottom:0;">' +
             '<label>' + label + '</label>' +
@@ -2647,6 +2784,7 @@
           renderIngredientTable();
         });
 
+        // Update the price hint in the edit form
         function updateEditPriceHint() {
           var p = parseFloat(document.getElementById("edit-price-" + ing.id).value);
           var hint = document.getElementById("edit-price-hint-" + ing.id);
@@ -2732,9 +2870,7 @@
     var priceInput = document.getElementById("ing-total-price");
     var costPreview = document.getElementById("ing-cost-preview");
 
-    // ONE place that works out what was bought, used by both the live preview and Save so they can never disagree.
-    //  - Package chosen (sack, tray...): Quantity = number of packages; "Each one contains" gives the size.
-    //  - No package: Quantity is in the unit picked next to it (e.g. 5 kg), converted to the recipe unit.
+    // Read what was bought from the form
     function readPurchase() {
       var unit = document.getElementById("ing-unit").value || "unit";
       var qty = parseFloat(qtyInput.value);
@@ -2758,13 +2894,14 @@
         var qUnit = qtyUnitEl.value || unit;
         var qf = unitFactor(qUnit, unit);
         if (qf === null) { res.factorError = qUnit + " can't be converted to " + unit + ". Pick a matching unit (g/kg, ml/L or pc)."; return res; }
-        res.conversion = qf;                       // recipe units in ONE quantity unit (1 kg = 1000 g)
+        res.conversion = qf;
         res.purchaseUnit = qUnit;
         res.hint = qUnit !== unit && qty > 0 ? qty.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + qUnit + " = " + (qty * qf).toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + unit + " in your recipes" : "";
       }
       return res;
     }
 
+    // Update the cost preview
     function updateCostPreview() {
       var p = readPurchase();
       var unit = p.unit;
@@ -2776,7 +2913,6 @@
         document.getElementById("ing-pack-size").value = "1";
         document.getElementById("ing-pack-unit").value = unit;
       }
-      // Starting stock / low-stock alerts are typed in the recipe unit - say so.
       document.getElementById("ing-start-label").textContent = "Starting stock quantity (" + unit + ")";
       document.getElementById("ing-low-label").textContent = "Low-stock threshold (" + unit + ")";
       document.getElementById("ing-conversion").value = p.conversion > 0 ? p.conversion : "";
@@ -2807,6 +2943,7 @@
     }
     var packUnitTouched = false;
     var qtyUnitTouched = false;
+    // Reset the package fields
     function resetPackFields() {
       packUnitTouched = false;
       qtyUnitTouched = false;
@@ -2844,7 +2981,7 @@
       var purchase = readPurchase();
       if (!purchase.chosen) { toast("Please choose how you buy this ingredient (Purchased as)."); return; }
       if (purchase.factorError) { toast(purchase.factorError); return; }
-      var conversion = purchase.conversion;       // recipe units in ONE purchased unit (sack, tray, kg...)
+      var conversion = purchase.conversion;
       var purchaseUnit = purchase.purchaseUnit;
       var startStockInput = document.getElementById("ing-start-stock").value;
       var startStock = startStockInput !== "" ? parseFloat(startStockInput) : (qty * conversion || 0);
@@ -2854,7 +2991,6 @@
         toast("Fill in ingredient name, quantity purchased, and total price paid.");
         return;
       }
-      // A price of 0 would make every recipe using this ingredient look free, so it is not allowed.
       if (!(totalPrice > 0)) { toast("The total price paid must be more than 0."); return; }
       if (isNaN(startStock) || startStock < 0) { toast("Starting stock can't be negative."); return; }
       if (lowStockVal !== "" && !(parseFloat(lowStockVal) >= 0)) { toast("The low-stock threshold can't be negative."); return; }
@@ -2899,6 +3035,7 @@
     var breadBody = document.getElementById("bread-stock-body");
     var breadBatches = await fetchBreadInventory();
 
+    // Show the bread stock table
     function renderBreadStock() {
       breadBody.innerHTML = "";
       if (!breadBatches.length) {
@@ -2937,6 +3074,7 @@
     var bsIngredientsBody = document.getElementById("bs-ingredients-used-body");
     var recipeLineCache = {};
 
+    // Fill the bread item drop-down
     function populateBreadItemSelect() {
       bsSelect.innerHTML = "";
       if (!recipes.length) {
@@ -2951,6 +3089,7 @@
       });
     }
 
+    // Update the preview of the bread batch
     async function updateBreadStockPreview() {
       var recipe = recipes.find(function (r) { return r.id === bsSelect.value; });
       bsPrice.value = recipe ? peso(recipe.selling_price) : peso(0);
@@ -3065,10 +3204,12 @@
       addForm.classList.add("is-visible");
     }
   }
+  // Set up the accounts page
   function initAdminPage() {
     var body = document.getElementById("accounts-body");
     if (!body) return;
 
+    // Show the accounts table
     async function renderAccounts() {
       var result = await supabaseClient.from("profiles").select("*");
       if (result.error) {
@@ -3100,6 +3241,7 @@
       });
     }
 
+    // Show the activity log
     async function renderActivity() {
       var logBody = document.getElementById("activity-log-body");
       var moreBtn = document.getElementById("activity-show-more");
@@ -3145,14 +3287,17 @@
     renderActivity();
   }
 
+  // Make a separate Supabase connection for new accounts
   function makeTempClient() {
     return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
     });
   }
+  // Get the full link of a page
   function siteUrl(file) {
     return window.location.origin + window.location.pathname.replace(/[^\/]*$/, "") + file;
   }
+  // Make a random password
   function generatePassword() {
     var sets = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%&*?"];
     var all = sets.join("");
@@ -3164,6 +3309,7 @@
     return out.join("");
   }
 
+  // Set up the invite account page
   function initInviteAccountPage() {
     var sendBtn = document.getElementById("send-invite-btn");
     if (!sendBtn) return;
@@ -3254,6 +3400,7 @@
     }
   }
 
+  // Set up the create account page
   function initCreateAccountPage() {
     var btn = document.getElementById("create-account-btn");
     if (!btn) return;
@@ -3359,23 +3506,27 @@
     });
   }
 
+  // Set up the edit account page
   function initEditAccountPage() {
     var nameInput = document.getElementById("edit-account-first-name");
     if (!nameInput) return;
 
     var id = new URLSearchParams(window.location.search).get("id");
 
+    // Show the chosen role
     function setRoleUI(role) {
       document.querySelectorAll("#edit-role-toggle .chip").forEach(function (c) {
         c.classList.toggle("active", c.getAttribute("data-role") === role);
       });
     }
+    // Show the chosen status
     function setStatusUI(status) {
       document.querySelectorAll("#edit-status-toggle .chip").forEach(function (c) {
         c.classList.toggle("active", c.getAttribute("data-status") === status);
       });
     }
 
+    // Load the data of the page
     async function load() {
       var result = await supabaseClient.from("profiles").select("*").eq("id", id).maybeSingle();
       var acc = result.data;
@@ -3481,7 +3632,6 @@
       document.getElementById("deactivate-account-btn").addEventListener("click", async function () {
         var deactivateBtnEl = document.getElementById("deactivate-account-btn");
         var previousStatus = acc.status === "Active" ? "Active" : "Inactive";
-        // Select "Inactive" straight away so the page shows what is being saved.
         pendingStatus = "Inactive";
         setStatusUI("Inactive");
         deactivateBtnEl.disabled = true;
@@ -3551,6 +3701,7 @@
     load();
   }
 
+  // Set up the profile page
   function initProfilePage() {
     var firstNameInput = document.getElementById("profile-first-name");
     if (!firstNameInput) return;
@@ -3560,6 +3711,7 @@
     var session = getSession();
     if (!session) { window.location.href = "index.html"; return; }
 
+    // Load the data of the page
     async function load() {
       var profileResult = await supabaseClient.from("profiles").select("*").eq("email", session.email).maybeSingle();
       var profile = profileResult.data;
@@ -3575,6 +3727,7 @@
     load();
   }
 
+  // Set up the record sale page
   async function initRecordSalePage() {
     var select = document.getElementById("sale-bread-item");
     if (!select) return;
@@ -3582,6 +3735,7 @@
     var recipes = await fetchRecipes();
     var breadBatches = await fetchBreadInventory();
 
+    // Get the pieces left of a bread
     function remainingFor(recipeId) {
       var baked = 0, sold = 0;
       breadBatches.forEach(function (b) {
@@ -3606,11 +3760,13 @@
     var priceInput = document.getElementById("sale-price");
     var totalInput = document.getElementById("sale-total");
 
+    // Show the price of the chosen bread
     function updatePrice() {
       var recipe = recipes.find(function (r) { return r.id === select.value; });
       priceInput.value = recipe ? recipe.selling_price.toFixed(2) : "";
       updateTotal();
     }
+    // Update the total amount
     function updateTotal() {
       var qty = parseFloat(qtyInput.value) || 0;
       var price = parseFloat(priceInput.value) || 0;
@@ -3670,7 +3826,6 @@
         appliedUpdates.push(batchUpdates[j]);
       }
       if (updateFailed) {
-        // put the batches back and remove the sale so the stock count and the sales record still match
         for (var u = 0; u < appliedUpdates.length; u++) {
           var before = breadBatches.find(function (bb) { return bb.id === appliedUpdates[u].id; });
           if (before) await updateBreadBatchSold(before.id, before.quantity_sold);
@@ -3699,6 +3854,7 @@
     });
   }
 
+  // Load the logo for the PDF
   function loadPdfLogo() {
     return new Promise(function (resolve) {
       try {
@@ -3720,14 +3876,16 @@
     });
   }
 
+  // Month names
   var TREND_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var TREND_MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+  // Add a zero in front of one digit numbers
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  // Turn a date into year-month-day
   function ymd(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
 
-  // One period picked with the second dropdown: a day, a week (Mon-Sun), a month or a year.
-  // value: day/week "YYYY-MM-DD" (week = its Monday), month "YYYY-MM", year "YYYY".
+  // Get the start and end of the chosen period
   function periodFromValue(key, value) {
     var start, end, name, heading, p, last;
     var full = function (d) { return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
@@ -3766,14 +3924,14 @@
     return { key: key, specific: true, value: value, start: start, end: end, info: { name: name, range: name, label: name }, heading: heading };
   }
 
-  // Keeps only the sales that fall inside the chosen period (or everything when none is chosen).
+  // Get the sales inside the chosen period
   function salesInPeriod(sales, sel) {
     if (!sel || !sel.specific) return sales;
     var a = sel.start.getTime(), b = sel.end.getTime();
     return sales.filter(function (s) { var t = new Date(s.sale_datetime).getTime(); return t >= a && t < b; });
   }
 
-  // Tells the chart which bar is the chosen period so it can stand out.
+  // Mark the chosen period in the trend
   function markSelected(trend, sel) {
     trend.selected = -1; trend.selectedLabel = "";
     if (sel && sel.specific) {
@@ -3784,6 +3942,7 @@
     return trend;
   }
 
+  // Group the sales into the trend of the chosen period
   function buildTrend(rangeKey, sales) {
     var now = new Date(), y = now.getFullYear(), m = now.getMonth(), dd = now.getDate();
     var list = [], mode, title, sub, labelEvery = 1, i, d;
@@ -3850,11 +4009,13 @@
     return { mode: mode, title: title, sub: sub, labelEvery: labelEvery, buckets: list };
   }
 
+  // Get the labels of the trend chart
   function trendAxis(top, mode) {
     var floors = { daily: 2000, weekly: 8000, monthly: 20000, yearly: 40000 };
     return axisScale(top, floors[mode] || 4000, 4, mode === "daily" ? 2 : 3);
   }
 
+  // Compute the sales of each bread
   function breadSalesStats(recipes, sales) {
     var sold = {};
     (sales || []).forEach(function (x) {
@@ -3880,12 +4041,14 @@
     return list;
   }
 
+  // Compute the profit of each bread
   function profitabilityRows(recipes, sales) {
     return breadSalesStats(recipes, sales).filter(function (r) { return !r.other && r.qty > 0 && r.amount > 0; }).map(function (r) {
       return { name: r.name, cost: r.cost / r.qty, price: r.amount / r.qty, profit: r.profit / r.qty, margin: (r.profit / r.amount) * 100 };
     }).sort(function (a, b) { return b.margin - a.margin; });
   }
 
+  // Create and download the PDF report
   async function exportReportToPdf(rangeKey, sales, recipes, extra) {
     var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
     if (!jsPDFCtor) { toast("PDF library didn't load. Check your internet connection and try again."); return; }
@@ -3902,11 +4065,16 @@
         GOOD = [62, 107, 46], BAD = [156, 59, 30];
     var BODY_TOP = 80, BODY_BOTTOM = 62;
 
+    // Show an amount in PHP
     function money(n) { return "PHP " + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    // Set the text color
     function setC(c) { doc.setTextColor(c[0], c[1], c[2]); }
+    // Paint the page background
     function paintPage() { doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]); doc.rect(0, 0, W, H, "F"); }
 
+    // Start a new page if there is not enough space
     function ensure(y, need) { if (y + need > H - BODY_BOTTOM) { doc.addPage(); return BODY_TOP; } return y; }
+    // Draw a section title
     function sectionTitle(text, y) {
       y = ensure(y, 150);
       doc.setFont("times", "bold"); doc.setFontSize(13); setC(CRUST);
@@ -3922,6 +4090,7 @@
       alternateRowStyles: { fillColor: [255, 255, 255] },
       margin: { left: M, right: M, top: BODY_TOP, bottom: BODY_BOTTOM }
     };
+    // Align the table headings
     function alignHead(d, right, center) {
       if (d.section === "head") {
         if (right.indexOf(d.column.index) !== -1) d.cell.styles.halign = "right";
@@ -3932,7 +4101,7 @@
     var selection = extra && extra.sel && extra.sel.specific ? extra.sel : null;
     var periodDetail = selection ? selection.info : periodInfo(rangeKey);
     var rangeLabel = periodDetail.label, rangeName = periodDetail.name;
-    var rangeNameText = selection ? rangeName : rangeName.toLowerCase(); // "last 7 days" vs "Week of Oct 5 - Oct 11, 2026"
+    var rangeNameText = selection ? rangeName : rangeName.toLowerCase();
     var session = getSession();
     var now = new Date();
     var generatedAt = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) + ", " + now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -3993,20 +4162,25 @@
 
     var C_SALES = [193, 102, 47], C_COST = [40, 120, 168], WHITE = [255, 255, 255];
     var PIE = [[193, 102, 47], [40, 120, 168], [62, 107, 46], [237, 191, 107], [122, 78, 45], [156, 59, 30]];
+    // Set the fill color
     function fillC(c) { doc.setFillColor(c[0], c[1], c[2]); }
+    // Set the line color
     function drawC(c) { doc.setDrawColor(c[0], c[1], c[2]); }
+    // Shorten the text to fit the width
     function fitText(t, maxW) {
       t = String(t);
       if (doc.getTextWidth(t) <= maxW) return t;
       while (t.length > 1 && doc.getTextWidth(t + "...") > maxW) t = t.slice(0, -1);
       return t + "...";
     }
+    // Show a number on the chart axis
     function axisLabel(n) {
       if (!n) return "0";
       if (n >= 1000000) return +(n / 1000000).toFixed(1) + "M";
       if (n >= 1000) return +(n / 1000).toFixed(1) + "K";
       return String(n);
     }
+    // Draw the box of a chart
     function chartCard(x, y, w, h, title, sub) {
       fillC(WHITE); drawC(WHEAT_LINE); doc.setLineWidth(0.7); doc.rect(x, y, w, h, "FD");
       fillC(CINNAMON); doc.rect(x, y, 3, h, "F");
@@ -4014,12 +4188,14 @@
       doc.text(title, x + 16, y + 20);
       if (sub) { doc.setFont(F.text, "italic"); doc.setFontSize(8); setC(MOCHA); doc.text(sub, x + w - 14, y + 20, { align: "right" }); }
     }
+    // Draw one legend item
     function legendItem(x, y, color, text) {
       fillC(color); doc.rect(x, y - 6, 8, 8, "F");
       doc.setFont(F.text, "normal"); doc.setFontSize(8); setC(CRUST); doc.text(text, x + 13, y + 1);
       return x + 13 + doc.getTextWidth(text) + 16;
     }
 
+    // Draw the sales trend chart
     function drawTrendChart(y, trend) {
       var h = 236;
       y = ensure(y, h + 10);
@@ -4051,6 +4227,7 @@
       return y + h + 10;
     }
 
+    // Draw the profit margin chart
     function drawMarginChart(y, list) {
       var rowH = 17, h = 66 + list.length * rowH;
       y = ensure(y, h + 10);
@@ -4072,6 +4249,7 @@
       return y + h + 10;
     }
 
+    // Draw a pie chart
     function drawPie(x, y, w, h, title, list, qtyOf, sub) {
       chartCard(x, y, w, h, title, sub || "Pieces sold");
       var total = list.reduce(function (s, n) { return s + qtyOf(n); }, 0);
@@ -4123,7 +4301,6 @@
     y += 58 + 30;
 
     y = sectionTitle("3.  Sales Charts", y);
-    // The chart always shows the whole window (all days / weeks / months / years); the chosen one is highlighted.
     var trend = markSelected(buildTrend(rangeKey, (extra && extra.windowSales) || sales), selection);
     var trendActive = trend.buckets.filter(function (b) { return b.sales > 0 || b.cost > 0; });
     var trendTotal = trend.buckets.reduce(function (t, b) { return { pcs: t.pcs + b.pcs, sales: t.sales + b.sales, cost: t.cost + b.cost }; }, { pcs: 0, sales: 0, cost: 0 });
@@ -4172,7 +4349,6 @@
     var pieH = 200, pieW = (CW - 14) / 2;
     y = ensure(y, pieH + 34);
     var qtyOf = function (n) { return qtyMap[n] || 0; };
-    // Percentages are out of ALL pieces sold, so everything not shown goes into one "All other breads" slice.
     var OTHER = "All other breads";
     var allQtySold = Object.keys(qtyMap).reduce(function (t, n) { return t + qtyMap[n]; }, 0);
     var withOther = function (list) {
@@ -4273,6 +4449,7 @@
     doc.save("DRR-Bakery-Report-" + fileDate + ".pdf");
   }
 
+  // Set up the analytics page
   async function initAnalyticsPage() {
     var el = document.getElementById("stat-total-sales");
     if (!el) return;
@@ -4283,17 +4460,17 @@
 
     var recipes = await fetchRecipes();
 
-    // Second dropdown: pick ONE day / week / month / year from the chart's own window.
-    // The first option ("All ...") shows the whole window, so no separate reset button is needed.
     var periodWrap = document.getElementById("period-picker");
     var periodSelect = document.getElementById("period-select");
-    var currentValue = ""; // "" = whole window
+    var currentValue = "";
 
+    // Get the chosen filter and period
     function currentSelection() {
       var key = rangeSelect.value;
       if (key !== "all" && currentValue) { var picked = periodFromValue(key, currentValue); if (picked) return picked; }
       return { key: key, specific: false, info: periodInfo(key) };
     }
+    // Fill the period drop-down
     function buildPeriodOptions() {
       var key = rangeSelect.value;
       currentValue = "";
@@ -4313,6 +4490,7 @@
       periodSelect.value = "";
     }
 
+    // Show the total boxes
     async function renderTotals(sales) {
       var totalSales = sales.reduce(function (s, x) { return s + x.total_amount; }, 0);
       var totalCost = sales.reduce(function (s, x) { return s + x.food_cost; }, 0);
@@ -4322,6 +4500,7 @@
       document.getElementById("stat-gross-profit").textContent = peso(gross);
     }
 
+    // Show the bread profitability ranking
     function renderRanking(sales) {
       var tbody = document.getElementById("ranking-body");
       tbody.innerHTML = "";
@@ -4342,6 +4521,7 @@
       });
     }
 
+    // Show the bread sales table
     function renderBreadSales(sales) {
       var tbody = document.getElementById("bread-sales-body");
       if (!tbody) return;
@@ -4372,6 +4552,7 @@
     var C_INK = "#3E2723", C_MUTED = "#8B7355", C_GRID = "#DCCBAE";
     var tipEl = document.getElementById("chart-tip");
 
+    // Round the highest value up for the chart
     function niceMax(v) {
       if (v <= 0) return 1;
       var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
@@ -4379,17 +4560,21 @@
       var n = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
       return n * p;
     }
+    // Make text safe for the chart
     function svgEsc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+    // Draw a bar with rounded top
     function barPath(x, y, w, h, r) {
       if (h <= 0) return "";
       r = Math.min(r, w / 2, h);
       return "M" + x + "," + (y + h) + "V" + (y + r) + "Q" + x + "," + y + " " + (x + r) + "," + y + "H" + (x + w - r) + "Q" + (x + w) + "," + y + " " + (x + w) + "," + (y + r) + "V" + (y + h) + "Z";
     }
+    // Draw a sideways bar with rounded end
     function hBarPath(x, y, w, h, r) {
       if (w <= 0) return "";
       r = Math.min(r, h / 2, w);
       return "M" + x + "," + y + "H" + (x + w - r) + "Q" + (x + w) + "," + y + " " + (x + w) + "," + (y + r) + "V" + (y + h - r) + "Q" + (x + w) + "," + (y + h) + " " + (x + w - r) + "," + (y + h) + "H" + x + "Z";
     }
+    // Show the tooltip
     function showTip(e, html) {
       if (!tipEl) return;
       tipEl.innerHTML = html;
@@ -4400,7 +4585,9 @@
       if (y + hgt > window.innerHeight - 8) y = e.clientY - hgt - 14;
       tipEl.style.left = x + "px"; tipEl.style.top = y + "px";
     }
+    // Hide the tooltip
     function hideTip() { if (tipEl) tipEl.classList.remove("is-visible"); }
+    // Make the chart bars show a tooltip
     function wireTips(container) {
       container.querySelectorAll("[data-tip]").forEach(function (g) {
         g.addEventListener("mousemove", function (e) { showTip(e, g.getAttribute("data-tip")); });
@@ -4412,8 +4599,10 @@
         g.addEventListener("blur", hideTip);
       });
     }
+    // Show a message when the chart has no data
     function emptyChart(el, msg) { el.innerHTML = '<p class="chart-empty">' + msg + '</p>'; }
 
+    // Show the sales and cost trend chart
     function renderTrendChart(trend) {
       var el = document.getElementById("chart-trend");
       if (!el) return;
@@ -4456,6 +4645,7 @@
       wireTips(el);
     }
 
+    // Show sideways bars
     function renderHBars(el, rows, opts) {
       var rowH = 34, L = 118, R = 64, T = 8, W = 420;
       var H = T + rows.length * rowH + 24;
@@ -4483,6 +4673,7 @@
       wireTips(el);
     }
 
+    // Get the total pieces and amount of each bread
     function breadTotals(sales) {
       var byItem = {};
       recipes.forEach(function (r) { byItem[r.name] = { qty: 0, rev: 0 }; });
@@ -4496,6 +4687,7 @@
 
     var PIE_COLORS = ["#C1662F", "#2878A8", "#3E6B2E", "#EDBF6B", "#7A4E2D", "#9C3B1E"];
 
+    // Show a pie chart
     function renderPie(el, rows, label) {
       var total = rows.reduce(function (t, r) { return t + r.value; }, 0);
       if (!total) { emptyChart(el, "No sales in this range yet."); return; }
@@ -4523,6 +4715,7 @@
       wireTips(el);
     }
 
+    // Show the best or lowest selling breads
     function drawSalesRank(elId, sales, lowest) {
       var el = document.getElementById(elId);
       if (!el) return;
@@ -4548,6 +4741,7 @@
       }
     }
 
+    // Show the profit margin chart
     function renderMarginChart(sales) {
       var el = document.getElementById("chart-margin");
       if (!el) return;
@@ -4561,6 +4755,7 @@
     }
 
     var refreshId = 0;
+    // Refresh everything for the chosen filter
     async function refreshForSelection() {
       var myRefresh = ++refreshId;
       var sel = currentSelection();
@@ -4580,6 +4775,7 @@
     rangeSelect.addEventListener("change", function () { buildPeriodOptions(); refreshForSelection(); });
     periodSelect.addEventListener("change", function () { currentValue = periodSelect.value; refreshForSelection(); });
 
+    // Fill the bread item drop-down
     function populateBreadItemSelect() {
       var select = document.getElementById("forecast-bread-item");
       select.innerHTML = "";
@@ -4604,7 +4800,7 @@
       recomputeForecast();
     });
 
-    // Cost to make one piece, taken from the recipe. 0 means the recipe has no ingredient costs yet.
+    // Get the cost of one piece for the forecast
     function forecastUnitCost() {
       var select = document.getElementById("forecast-bread-item");
       var opt = select.options[select.selectedIndex];
@@ -4612,20 +4808,20 @@
       return isFinite(c) && c > 0 ? c : 0;
     }
 
+    // Compute the forecast
     function recomputeForecast() {
       var select = document.getElementById("forecast-bread-item");
       var pcsRaw = parseFloat(document.getElementById("forecast-pcs").value);
-      var pcs = isFinite(pcsRaw) && pcsRaw > 0 ? Math.floor(pcsRaw) : 0;              // whole pieces only
+      var pcs = isFinite(pcsRaw) && pcsRaw > 0 ? Math.floor(pcsRaw) : 0;
       var price = parseFloat(document.getElementById("forecast-price").value) || 0;
       var wastePct = Math.min(100, Math.max(0, parseFloat(document.getElementById("forecast-waste-pct").value) || 0));
-      // Leftovers are whole pieces. Round UP so the forecast is never too optimistic.
       var wastePcs = Math.max(0, Math.min(pcs, Math.ceil(pcs * (wastePct / 100) - 1e-9)));
       document.getElementById("forecast-waste-pcs-label").textContent = wastePct + "% = " + wastePcs + (wastePcs === 1 ? " pc" : " pcs") + " left over";
 
       var unitCost = forecastUnitCost();
       var sellablePcs = Math.max(0, pcs - wastePcs);
       var revenue = sellablePcs * price;
-      var foodCost = pcs * unitCost;                   // you pay for every piece you bake, sold or not
+      var foodCost = pcs * unitCost;
       var grossProfit = revenue - foodCost;
       var margin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
 
@@ -4669,11 +4865,13 @@
     await refreshForSelection();
   }
 
+  // Fill in the footer details
   function fillFooterBasics() {
     document.querySelectorAll(".footer-year").forEach(function (el) { el.textContent = new Date().getFullYear(); });
     document.querySelectorAll(".footer-phone-text").forEach(function (el) { el.textContent = CONTACT_PHONE; });
   }
 
+  // Fill in the footer links
   function fillFooterLinks() {
     var list = document.getElementById("footer-links");
     if (!list) return;
@@ -4697,6 +4895,7 @@
     });
   }
 
+  // Stop double clicks on the save buttons
   function protectSaveButtons() {
     ["save-recipe-btn", "save-ingredient-btn", "save-bread-stock-btn", "save-sale-btn",
      "send-invite-btn", "create-account-btn"].forEach(function (id) {
@@ -4719,23 +4918,28 @@
     });
   }
 
+  // Set up the photo slideshow
   function initPhotoSlideshow() {
     document.querySelectorAll(".dash-photo[data-slideshow]").forEach(function (fig) {
       var slides = fig.querySelectorAll(".photo-stack img");
       var stack = fig.querySelector(".photo-stack");
       var dotsWrap = fig.querySelector(".photo-dots");
       if (slides.length < 2 || !stack) return;
-      if (dotsWrap) dotsWrap.remove();               // the little boxes under the photo are replaced by two arrow buttons
+      if (dotsWrap) dotsWrap.remove();
       var idx = 0, timer = null;
+      // Show a photo
       function show(i) {
         idx = (i + slides.length) % slides.length;
         slides.forEach(function (img, n) { img.classList.toggle("is-active", n === idx); });
       }
+      // Stop the slideshow
       function stop() { if (timer) { clearInterval(timer); timer = null; } }
+      // Start the slideshow
       function start() {
         if (timer || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
         timer = setInterval(function () { show(idx + 1); }, 4500);
       }
+      // Make an arrow button
       function makeArrow(dir) {
         var btn = document.createElement("button");
         btn.type = "button";
@@ -4763,6 +4967,7 @@
     if (appInitStarted) return;
     appInitStarted = true;
 
+    // Show the page once it is ready
     function reveal() { document.body.classList.add("app-ready"); }
 
     try {
@@ -4783,6 +4988,7 @@
       if (chromeOk === false) return;
       fillFooterLinks();
 
+      // Set up every page
       var inits = [initDashboardPage, initRecipesListPage, initRecipeFormPage, initRecipeViewPage,
                    initInventoryPage, initAdminPage, initInviteAccountPage, initCreateAccountPage, initEditAccountPage,
                    initProfilePage, initRecordSalePage, initAnalyticsPage, initPhotoSlideshow];
